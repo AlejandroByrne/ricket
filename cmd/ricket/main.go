@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,12 +20,30 @@ import (
 
 var vaultRoot string
 
+const plainRicketBanner = `
+██████╗ ██╗ ██████╗██╗  ██╗███████╗████████╗
+██╔══██╗██║██╔════╝██║ ██╔╝██╔════╝╚══██╔══╝
+██████╔╝██║██║     █████╔╝ █████╗     ██║
+██╔══██╗██║██║     ██╔═██╗ ██╔══╝     ██║
+██║  ██║██║╚██████╗██║  ██╗███████╗   ██║
+╚═╝  ╚═╝╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝   ╚═╝
+`
+
 func main() {
 	root := &cobra.Command{
 		Use:     "ricket",
 		Short:   "Vault-powered context engine for AI coding agents",
 		Version: "0.2.0",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			printBanner(os.Stdout)
+			return cmd.Usage()
+		},
 	}
+	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		printBanner(cmd.OutOrStdout())
+		fmt.Fprintln(cmd.OutOrStdout())
+		_ = cmd.Root().Usage()
+	})
 	root.PersistentFlags().StringVarP(&vaultRoot, "vault-root", "r", "",
 		"Vault root directory (overrides RICKET_VAULT_ROOT env var and ~/.config/ricket/config.yaml)")
 
@@ -33,6 +52,67 @@ func main() {
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+func printBanner(out io.Writer) {
+	if out == nil || !shouldShowBanner() {
+		return
+	}
+	if supportsANSI() {
+		fmt.Fprint(out, coloredRicketBanner())
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, coloredRicketTagline())
+		return
+	}
+	fmt.Fprint(out, plainRicketBanner)
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Inbox -> Triage -> Filed -> Committed")
+}
+
+func shouldShowBanner() bool {
+	if os.Getenv("RICKET_NO_ART") != "" {
+		return false
+	}
+	if os.Getenv("NO_COLOR") != "" {
+		return false
+	}
+	return true
+}
+
+func supportsANSI() bool {
+	term := strings.TrimSpace(strings.ToLower(os.Getenv("TERM")))
+	if term == "dumb" {
+		return false
+	}
+	if os.Getenv("WT_SESSION") != "" || os.Getenv("TERM_PROGRAM") != "" {
+		return true
+	}
+	return os.Getenv("ANSICON") != "" || os.Getenv("ConEmuANSI") == "ON"
+}
+
+func coloredRicketBanner() string {
+	reset := "\x1b[0m"
+	shadow := "\x1b[38;2;24;24;23m"
+	deep := "\x1b[38;2;56;83;47m"
+	main := "\x1b[38;2;77;114;63m"
+	highlight := "\x1b[38;2;103;135;85m"
+
+	lines := []string{
+		shadow + "██████╗ ██╗ ██████╗██╗  ██╗███████╗████████╗" + reset,
+		deep + "██╔══██╗██║██╔════╝██║ ██╔╝██╔════╝╚══██╔══╝" + reset,
+		main + "██████╔╝██║██║     █████╔╝ █████╗     ██║   " + reset,
+		main + "██╔══██╗██║██║     ██╔═██╗ ██╔══╝     ██║   " + reset,
+		highlight + "██║  ██║██║╚██████╗██║  ██╗███████╗   ██║   " + reset,
+		highlight + "╚═╝  ╚═╝╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝   ╚═╝   " + reset,
+	}
+	return strings.Join(lines, "\n")
+}
+
+func coloredRicketTagline() string {
+	reset := "\x1b[0m"
+	accent := "\x1b[38;2;201;183;104m"
+	muted := "\x1b[38;2;118;125;133m"
+	return muted + "Inbox" + reset + accent + " -> " + reset + muted + "Triage" + reset + accent + " -> " + reset + muted + "Filed" + reset + accent + " -> " + reset + muted + "Committed" + reset
 }
 
 // resolveRoot returns the vault root using this precedence:
@@ -123,9 +203,9 @@ func initCmd() *cobra.Command {
 func runWizard(defaultRoot string) error {
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Fprintln(os.Stderr, "\n╔══════════════════════════════════════╗")
-	fmt.Fprintln(os.Stderr, "║  ricket setup wizard                 ║")
-	fmt.Fprintln(os.Stderr, "╚══════════════════════════════════════╝")
+	fmt.Fprintln(os.Stderr)
+	printBanner(os.Stderr)
+	fmt.Fprintln(os.Stderr, "setup wizard")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Press Enter to accept defaults shown in [brackets].")
 	fmt.Fprintln(os.Stderr, "")
