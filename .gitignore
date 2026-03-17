@@ -5,3 +5,8 @@ bin/
 *.db
 .DS_Store
 *.log
+
+# Go
+*.test
+*.out
+/ricket

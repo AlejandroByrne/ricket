@@ -1,0 +1,1 @@
+We should stop using raw SQL strings everywhere and switch to a query builder pattern. Makes it easier to handle dynamic WHERE clauses and prevents injection bugs. Ask the team about adopting squirrel or similar.

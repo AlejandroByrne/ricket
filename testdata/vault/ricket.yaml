@@ -1,0 +1,48 @@
+vault:
+  inbox: Inbox/
+  archive: Archive/
+  templates: _templates/
+
+categories:
+  - name: acme-decision
+    folder: Areas/Engineering/decisions/
+    template: decision
+    naming: use-{topic}.md
+    tags: [decision, acme]
+    moc: Areas/Engineering/decisions/MOC.md
+    signals: [decision, standard, convention, rule, architecture]
+
+  - name: acme-concept
+    folder: Areas/Engineering/concepts/
+    template: concept
+    naming: "{topic}.md"
+    tags: [concept, acme]
+    moc: Areas/Engineering/concepts/MOC.md
+    signals: [concept, explain, understand, definition, how]
+
+  - name: acme-meeting
+    folder: Areas/Engineering/meetings/
+    template: meeting
+    naming: YYYY-MM-DD-{topic}.md
+    tags: [meeting, acme]
+    signals: [meeting, standup, sync, planning, retro]
+
+  - name: acme-project
+    folder: Projects/acme/
+    template: project
+    naming: "{topic}.md"
+    tags: [project, acme]
+    moc: Projects/acme/MOC.md
+    signals: [project, task, feature, initiative, epic]
+
+  - name: learning
+    folder: Areas/Personal Development/
+    template: learning
+    naming: "{topic}.md"
+    tags: [learning]
+    moc: Areas/Personal Development/MOC.md
+    signals: [learning, skill, training, course, book]
+
+mcp:
+  name: ricket-test
+  version: 0.1.0

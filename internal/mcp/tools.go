@@ -309,10 +309,12 @@ func handleVaultFileNote(s *RicketMCPServer) mcpserver.ToolHandlerFunc {
 		type result struct {
 			Destination      string `json:"destination"`
 			GitCommitMessage string `json:"gitCommitMessage"`
+			GitCommitted     bool   `json:"gitCommitted"`
 		}
 		r := result{
 			Destination:      fileResult.Destination,
 			GitCommitMessage: fileResult.GitCommitMessage,
+			GitCommitted:     fileResult.GitCommitted,
 		}
 
 		out, _ := json.MarshalIndent(r, "", "  ")

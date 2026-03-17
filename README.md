@@ -2,171 +2,280 @@
 
 Vault-powered context engine for AI coding agents.
 
-Ricket bridges your Obsidian vault and your AI coding agent (Claude Code, GitHub Copilot, Cursor). Two jobs:
+Ricket bridges your [Obsidian](https://obsidian.md) vault and your AI coding assistant (Claude Code, GitHub Copilot, Cursor). Two jobs:
 
-1. **Triage** — take raw notes, meeting dumps, voice transcripts and interactively classify, scaffold, tag, link, and file them into the right place in your vault
-2. **Context** — expose your vault's decisions, standards, people, and project history as structured context that any coding agent can consume via MCP
+1. **Triage** — take raw inbox notes, voice transcripts, meeting dumps and file them into the right place with the right template, tags, links, and MOC entry.
+2. **Context** — expose your vault's decisions, standards, concepts, and project history as structured context via MCP so your agent always knows your stack.
 
-Ricket is **not** an LLM. It makes zero API calls. It's plumbing — the tool that LLMs call, not the other way around.
+Ricket makes **zero LLM API calls**. It is pure plumbing — the tool the LLM calls, not the other way around.
 
-## Install
+---
+
+## Requirements
+
+- Go 1.22+ (for building from source)
+- An Obsidian vault organised with [PARA](https://fortelabs.com/blog/para/) or similar
+- Recommended Obsidian plugins: **Templater**, **Dataview**, **Obsidian Git**, **Tag Wrangler**, **Omnisearch**
+
+---
+
+## Installation
 
 ```bash
-npm install -g ricket
+go install github.com/AlejandroByrne/ricket/cmd/ricket@latest
 ```
 
-Requires Node.js 20+.
-
-## Quick start
+Or build from source:
 
 ```bash
-# Point ricket at your Obsidian vault
-cd ~/obsidian-vault
-ricket init
-
-# Start the MCP server (for Claude Code / GitHub Copilot)
-ricket serve
+git clone https://github.com/AlejandroByrne/ricket
+cd ricket
+make build          # → bin/ricket
 ```
 
-## How it works
+---
 
-Ricket runs as an [MCP server](https://modelcontextprotocol.io/) that AI agents call via tool use. When you tell Claude Code "triage my inbox" or "what did we decide about the ORM?", the agent calls ricket's tools to read, search, classify, and file notes in your vault.
+## Setup
 
-```
-You → "triage my inbox"
-  └→ Claude Code → ricket MCP: vault_list_inbox()
-  └→ Claude Code → ricket MCP: vault_read_note(path)
-  └→ Claude Code (thinks): "this is a decision note"
-  └→ Claude Code → you: "I propose filing as decisions/use-dapper-not-efcore.md"
-  └→ You: "yes"
-  └→ Claude Code → ricket MCP: vault_file_note(src, dest, template, tags)
-  └→ Ricket: moves file, scaffolds template, adds tags, updates MOC, git commits
+### 1. Initialise your vault
+
+```bash
+ricket init /path/to/your/obsidian-vault
 ```
 
-## MCP tools
+This runs an interactive wizard that asks about your organisations, note categories, and inbox habits, then writes `ricket.yaml` and offers to set the vault as your default.
 
-| Tool | Description |
-|---|---|
-| `vault_list_inbox` | List all notes in the inbox folder |
-| `vault_read_note` | Read a note with parsed frontmatter, tags, and wikilinks |
-| `vault_search` | Search by folder, tags, or text content |
-| `vault_get_categories` | Get the full vault category configuration |
-| `vault_get_templates` | List templates with their section fields |
-| `vault_file_note` | File a note: move, scaffold template, add tags/links, update MOC |
-| `vault_create_note` | Create a new note from a template |
-| `vault_status` | Vault stats: inbox count, total notes, categories |
+### 2. Verify
 
-## Configuration
-
-Ricket uses a `ricket.yaml` file at your vault root. Run `ricket init` to generate one, or create it manually:
-
-```yaml
-vault:
-  inbox: Inbox/
-  archive: Archive/
-  templates: _templates/
-
-categories:
-  - name: decision
-    folder: Areas/Engineering/decisions/
-    template: decision
-    naming: "use-{topic}.md"
-    tags: [decision]
-    moc: Areas/Engineering/Engineering.md
-    signals: ["we decided", "standard is", "always use"]
-
-  - name: concept
-    folder: Areas/Engineering/concepts/
-    template: concept
-    tags: [concept]
-
-  # Add your own categories...
+```bash
+ricket status
 ```
 
-Each category defines where notes of that type live, what template to use, what tags to apply, and what signals (keywords) hint that a note belongs there. The LLM uses this configuration to make classification decisions.
+```
+Vault:       /Users/alice/obsidian-vault
+Total notes: 847
+Inbox:       3 notes
+Categories:  8
 
-## Connecting to Claude Code
+Inbox:
+  - Inbox/2026-03-17-sync.md  [meeting, acme]
+  - Inbox/raw-capture.md
+  - Inbox/learning-rust.md    [learning]
+```
 
-Add to your Claude Desktop MCP config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+---
+
+## Vault root resolution
+
+`ricket serve` resolves the vault root in this order:
+
+| Priority | Source |
+|----------|--------|
+| 1 | `--vault-root` CLI flag |
+| 2 | `RICKET_VAULT_ROOT` environment variable |
+| 3 | `default_vault` in `~/.config/ricket/config.yaml` |
+| 4 | Current working directory |
+
+Set the default once:
+
+```bash
+ricket config set-default /path/to/vault
+# or
+ricket init  # wizard offers to set it at the end
+```
+
+---
+
+## Adding to Claude Code
+
+Add to `~/.claude/mcp.json` (global) or `.claude/mcp.json` (project):
 
 ```json
 {
   "mcpServers": {
     "ricket": {
       "command": "ricket",
-      "args": ["serve", "--vault-root", "/path/to/your/vault"]
+      "args": ["serve"],
+      "env": {
+        "RICKET_VAULT_ROOT": "/absolute/path/to/vault"
+      }
     }
   }
 }
 ```
 
-Or for Claude Code, add to `.mcp.json` in your project:
+If you've set a default vault via `ricket config set-default`, you can omit the env var:
 
 ```json
 {
   "mcpServers": {
     "ricket": {
       "command": "ricket",
-      "args": ["serve", "--vault-root", "/path/to/your/vault"]
+      "args": ["serve"]
     }
   }
 }
 ```
 
-## Connecting to GitHub Copilot (VS Code)
+---
 
-Add to `.vscode/mcp.json` in your workspace:
+## Adding to GitHub Copilot (VS Code)
+
+Create or edit `.vscode/mcp.json` in your project:
 
 ```json
 {
   "servers": {
     "ricket": {
+      "type": "stdio",
       "command": "ricket",
-      "args": ["serve", "--vault-root", "C:\\Users\\you\\source\\obsidian-vault"]
+      "args": ["serve"],
+      "env": {
+        "RICKET_VAULT_ROOT": "/absolute/path/to/vault"
+      }
     }
   }
 }
 ```
 
-Then in Copilot Chat, select **Agent** mode and make sure the ricket tools are enabled in the tools config dial.
+---
 
-## Vault structure
+## MCP tools reference
 
-Ricket ships with [PARA](https://fortelabs.com/blog/para/) as the default organizational system:
+| Tool | Description |
+|------|-------------|
+| `vault_list_inbox` | List all notes in Inbox — path, name, 200-char preview |
+| `vault_read_note` | Read a note by path — frontmatter, content, tags, wikilinks |
+| `vault_search` | Search by folder, tags (AND), and/or full-text query |
+| `vault_get_categories` | Return all configured categories with signals |
+| `vault_get_templates` | Return all templates with their section headings |
+| `vault_file_note` | Move a note from Inbox to destination, apply template/tags/links/MOC |
+| `vault_create_note` | Create a new note with optional tags, links, and MOC update |
+| `vault_status` | Inbox count, total notes, category count |
 
-- **Projects/** — active work with an end date
-- **Areas/** — ongoing responsibilities (engineering standards, team context)
-- **Resources/** — reference material (career notes, docs, specs)
-- **Archive/** — completed or inactive
+### `vault_search` parameters
 
-Categories, folder paths, templates, and tags are all configurable in `ricket.yaml`.
+```json
+{
+  "folder": "Areas/Engineering/decisions/",
+  "tags": ["decision", "acme"],
+  "query": "SQL Server"
+}
+```
+
+All filters are **AND**-combined. Uses SQLite for tag/content queries; filesystem walk otherwise.
+
+### `vault_file_note` parameters
+
+```json
+{
+  "source": "Inbox/meeting-notes.md",
+  "destination": "Areas/Engineering/meetings/2026-03-17-sprint-planning.md",
+  "template": "meeting",
+  "tags": ["meeting", "acme"],
+  "links": ["sprint-backlog", "auth-regression"],
+  "moc": "Areas/Engineering/meetings/MOC.md"
+}
+```
+
+Returns `{ destination, gitCommitMessage, gitCommitted }`. If the vault is a git repository, ricket auto-commits the change.
+
+---
+
+## ricket.yaml reference
+
+```yaml
+vault:
+  inbox: Inbox/          # where unprocessed notes land
+  archive: Archive/      # where old notes go
+  templates: _templates/ # Obsidian Templater templates
+
+categories:
+  - name: acme-decision
+    folder: Areas/Engineering/decisions/
+    template: decision          # template to apply when filing
+    naming: use-{topic}.md      # suggested filename pattern
+    tags: [decision, acme]      # tags to add on filing
+    moc: Areas/Engineering/decisions/MOC.md  # MOC to update
+    signals:                    # keywords that hint this category
+      - decision
+      - standard
+      - convention
+
+mcp:
+  name: ricket      # name shown in MCP client
+  version: 0.1.0
+```
+
+### Signal hints
+
+`signals` are keywords that help the AI agent decide which category a note belongs to. When the agent calls `vault_get_categories`, it sees these signals and can match them against the note's content before calling `vault_file_note`.
+
+---
 
 ## Git audit trail
 
-Every file operation ricket performs is automatically committed with a structured message:
+If your vault is a git repository (recommended — use the **Obsidian Git** plugin), ricket automatically commits every `vault_file_note` and `vault_create_note` operation:
 
 ```
-ricket: filed meeting-notes.md → Areas/Engineering/meetings/2026-03-16-sprint.md
+ricket: filed meeting-notes.md → Areas/Engineering/meetings/2026-03-17-sprint-planning.md
+ricket: created Areas/Engineering/concepts/opentelemetry.md
 ```
 
-This gives you a clean audit trail (`git log --grep="ricket:"`) and easy undo (`git revert`).
+Filter AI-assisted vault operations:
 
-## CLI
-
-```
-ricket init [path]     Initialize ricket in a vault (generates ricket.yaml)
-ricket serve           Start MCP server on stdio
-ricket status          Show vault stats and inbox contents
-ricket --help          Show all commands
+```bash
+git log --oneline --grep="ricket:"
 ```
 
-## Who this is for
+---
 
-Software engineers who:
-- Maintain an Obsidian vault for engineering decisions, team context, and career notes
-- Use AI coding agents (Claude Code, GitHub Copilot, Cursor) daily
-- Want a two-way loop: vault feeds the agent context, agent feeds the vault knowledge
+## Recommended Obsidian plugin setup
 
-## License
+| Plugin | Why |
+|--------|-----|
+| **Obsidian Git** | Auto-syncs vault to remote; ricket commits appear here |
+| **Templater** | Templates use `<% tp.file.title %>` and `<% tp.date.now(...) %>` — ricket resolves these |
+| **Dataview** | MOC files can use Dataview queries to auto-list notes by tag |
+| **Tag Wrangler** | Rename tags across vault when standards change |
+| **Omnisearch** | Fast full-text search in the Obsidian UI (complements ricket's SQLite index) |
 
-MIT
+---
+
+## Development
+
+```bash
+make build    # compile to bin/ricket
+make test     # go test ./...
+make lint     # go vet ./...
+make clean    # remove bin/ and .ricket/
+```
+
+### Test vault
+
+`testdata/vault/` contains a realistic PARA vault used for integration tests. It has:
+- 3 inbox captures (raw, meeting draft, learning note)
+- 5 templates (decision, concept, meeting, project, learning)
+- Filed notes across decisions, concepts, projects, personal development
+- `ricket.yaml` configured for a single work org ("acme") + personal learning
+
+---
+
+## Architecture
+
+```
+cmd/ricket/          CLI (init, serve, status, config)
+internal/
+  config/            ricket.yaml load/generate/write
+  vault/             core vault operations
+    frontmatter.go   YAML frontmatter parse/serialize
+    template.go      Templater placeholder substitution
+    moc.go           Map-of-Content append
+    index.go         SQLite search index (modernc.org/sqlite)
+    vault.go         Vault struct — all operations
+  git/               Git audit trail
+  mcp/               MCP server (mark3labs/mcp-go)
+    server.go        Server init and stdio serve
+    tools.go         All 8 tool definitions and handlers
+testdata/vault/      Realistic test vault fixture
+```
