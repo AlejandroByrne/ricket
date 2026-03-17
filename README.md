@@ -179,6 +179,20 @@ If you see `spawn ricket ENOENT`:
 
 ---
 
+## Adding to GitHub Copilot (Visual Studio)
+
+Generate a solution-local MCP config:
+
+```bash
+ricket mcp init-visualstudio /path/to/your/solution --vault-root /path/to/vault
+```
+
+This writes `.vs/mcp.json` with an absolute `command` path and `RICKET_VAULT_ROOT` environment variable.
+
+The generated server definition matches the same stdio MCP shape used for VS Code (`type`, `command`, `args`, `env`). Feature parity in the chat UI is determined by the Visual Studio Copilot build/channel you are using.
+
+---
+
 ## MCP tools reference
 
 | Tool | Description |

@@ -448,6 +448,44 @@ func writeVSCodeMCPConfig(workspacePath, vaultPath string) error {
 	return os.WriteFile(filepath.Join(workspacePath, ".vscode", "mcp.json"), data, 0o644)
 }
 
+func writeVisualStudioMCPConfig(solutionPath, vaultPath string) error {
+	command := resolveRicketCommand()
+
+	type visualStudioServer struct {
+		Type    string            `json:"type"`
+		Command string            `json:"command"`
+		Args    []string          `json:"args"`
+		Env     map[string]string `json:"env,omitempty"`
+	}
+	type visualStudioMCPConfig struct {
+		Servers map[string]visualStudioServer `json:"servers"`
+	}
+
+	cfg := visualStudioMCPConfig{
+		Servers: map[string]visualStudioServer{
+			"ricket": {
+				Type:    "stdio",
+				Command: command,
+				Args:    []string{"serve"},
+				Env: map[string]string{
+					"RICKET_VAULT_ROOT": vaultPath,
+				},
+			},
+		},
+	}
+
+	if err := os.MkdirAll(filepath.Join(solutionPath, ".vs"), 0o755); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(filepath.Join(solutionPath, ".vs", "mcp.json"), data, 0o644)
+}
+
 func resolveRicketCommand() string {
 	if p, err := exec.LookPath("ricket"); err == nil {
 		if abs, absErr := filepath.Abs(p); absErr == nil {
@@ -1035,7 +1073,35 @@ func mcpCmd() *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(vscode)
+	visualStudio := &cobra.Command{
+		Use:   "init-visualstudio [solution-path]",
+		Short: "Write .vs/mcp.json for Visual Studio Copilot",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			solution := "."
+			if len(args) == 1 {
+				solution = args[0]
+			}
+			solutionAbs, err := filepath.Abs(solution)
+			if err != nil {
+				return err
+			}
+
+			root, err := resolveRoot()
+			if err != nil {
+				return err
+			}
+
+			if err := writeVisualStudioMCPConfig(solutionAbs, root); err != nil {
+				return err
+			}
+
+			fmt.Printf("Wrote %s\n", filepath.Join(solutionAbs, ".vs", "mcp.json"))
+			return nil
+		},
+	}
+
+	cmd.AddCommand(vscode, visualStudio)
 	return cmd
 }
 

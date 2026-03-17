@@ -271,6 +271,41 @@ func TestCLI_MCPInitVSCode_WritesConfig(t *testing.T) {
 	}
 }
 
+func TestCLI_MCPInitVisualStudio_WritesConfig(t *testing.T) {
+	vault := testVaultPath(t)
+	solution := t.TempDir()
+
+	stdout, stderr, code := runRicket(t, nil,
+		"mcp", "init-visualstudio", solution, "--vault-root", vault)
+	if code != 0 {
+		t.Fatalf("mcp init-visualstudio exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
+	}
+
+	data, err := os.ReadFile(filepath.Join(solution, ".vs", "mcp.json"))
+	if err != nil {
+		t.Fatalf("read generated .vs/mcp.json: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("unmarshal .vs/mcp.json: %v", err)
+	}
+	servers, ok := parsed["servers"].(map[string]any)
+	if !ok {
+		t.Fatalf("servers key missing or wrong type: %T", parsed["servers"])
+	}
+	rawRicket, ok := servers["ricket"].(map[string]any)
+	if !ok {
+		t.Fatalf("ricket server missing from generated config")
+	}
+	if rawRicket["command"] == "ricket" {
+		t.Error("expected absolute command path in generated config, got plain 'ricket'")
+	}
+	env, _ := rawRicket["env"].(map[string]any)
+	if env["RICKET_VAULT_ROOT"] != vault {
+		t.Errorf("RICKET_VAULT_ROOT = %v, want %s", env["RICKET_VAULT_ROOT"], vault)
+	}
+}
+
 func TestCLI_CompletionCommand(t *testing.T) {
 	stdout, stderr, code := runRicket(t, nil, "completion", "powershell")
 	if code != 0 {
