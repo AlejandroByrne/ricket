@@ -1,0 +1,70 @@
+# ricket.yaml — vault configuration
+# Place this at the root of your Obsidian vault.
+# Run `ricket init` to generate one automatically from your existing structure.
+
+vault:
+  inbox: Inbox/
+  archive: Archive/
+  templates: _templates/
+
+categories:
+  - name: decision
+    folder: Areas/FCBT Engineering/decisions/
+    template: decision
+    naming: "use-{topic}.md"
+    tags: [decision, fcbt]
+    moc: Areas/FCBT Engineering/FCBT Engineering.md
+    signals: ["we decided", "standard is", "always use", "never use"]
+
+  - name: concept
+    folder: Areas/FCBT Engineering/concepts/
+    template: concept
+    naming: "{topic}.md"
+    tags: [concept]
+    moc: Areas/FCBT Engineering/FCBT Engineering.md
+    signals: ["how it works", "what it is", "explained"]
+
+  - name: person
+    folder: Areas/FCBT Engineering/people/
+    template: fcbt-person
+    naming: "{firstname}-{lastname}.md"
+    tags: [fcbt-team, person]
+    moc: Areas/FCBT Engineering/FCBT Engineering.md
+
+  - name: meeting
+    folder: Areas/FCBT Engineering/meetings/
+    template: meeting
+    naming: "{date}-{topic}.md"
+    tags: [meeting, fcbt]
+    moc: Areas/FCBT Engineering/FCBT Engineering.md
+    signals: ["meeting", "attendees", "agenda", "action items"]
+
+  - name: project
+    folder: Projects/FCBT/
+    template: project
+    naming: "{name}.md"
+    tags: [project, fcbt]
+    signals: ["sprint", "feature", "initiative", "work item"]
+
+  - name: past-project
+    folder: Resources/career/past-projects/
+    template: past-project
+    naming: "{name}.md"
+    tags: [past-project, interview-prep]
+    moc: Resources/career/resume-context.md
+    signals: ["I worked on", "at my last job", "STAR", "built", "shipped"]
+
+  - name: learning
+    folder: Areas/Personal Development/
+    template: learning
+    naming: "{topic}.md"
+    tags: [learning, personal-dev]
+    signals: ["I want to learn", "goal", "skill", "course", "book"]
+
+  - name: reference
+    folder: Resources/
+    tags: []
+
+  - name: archive
+    folder: Archive/
+    tags: []
