@@ -84,6 +84,14 @@ ricket config set-default /path/to/vault
 ricket init  # wizard offers to set it at the end
 ```
 
+Validate your vault configuration at any time:
+
+```bash
+ricket config validate --vault-root /path/to/vault
+```
+
+This checks that all required directories exist and that every category's template and MOC file are in place.
+
 ---
 
 ## Adding to Claude Code
@@ -165,6 +173,19 @@ Create or edit `.vscode/mcp.json` in your project:
 ```
 
 All filters are **AND**-combined. Uses SQLite for tag/content queries; filesystem walk otherwise.
+
+### `vault_update_note` parameters
+
+```json
+{
+  "path": "Areas/Engineering/decisions/use-sqlite-for-index.md",
+  "content": "# Revised decision\n\nUpdated rationale...",
+  "tags": ["reviewed", "stable"],
+  "links": ["observability-strategy"]
+}
+```
+
+At least one of `content`, `tags`, or `links` must be provided. Tags are additive (merged with existing tags, deduplicated). Returns `{ path, gitCommitted }`.
 
 ### `vault_file_note` parameters
 

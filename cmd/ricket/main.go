@@ -559,7 +559,79 @@ func configCmd() *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(setDefault, showPath)
+	validate := &cobra.Command{
+		Use:   "validate",
+		Short: "Validate vault configuration and directory structure",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			root, err := resolveRoot()
+			if err != nil {
+				return err
+			}
+
+			cfg, err := config.LoadConfig(root)
+			if err != nil {
+				return fmt.Errorf("config error: %w", err)
+			}
+
+			ok := true
+			warn := func(format string, a ...any) {
+				fmt.Fprintf(os.Stderr, "  WARN  "+format+"\n", a...)
+				ok = false
+			}
+			info := func(format string, a ...any) {
+				fmt.Printf("  OK    "+format+"\n", a...)
+			}
+
+			fmt.Printf("Vault: %s\n\n", cfg.VaultRoot)
+
+			// Check required dirs
+			for _, sub := range []struct{ name, path string }{
+				{"inbox", cfg.Vault.Inbox},
+				{"archive", cfg.Vault.Archive},
+				{"templates", cfg.Vault.Templates},
+			} {
+				absDir := filepath.Join(cfg.VaultRoot, filepath.FromSlash(sub.path))
+				if _, err := os.Stat(absDir); err != nil {
+					warn("%s directory missing: %s", sub.name, sub.path)
+				} else {
+					info("%s directory exists: %s", sub.name, sub.path)
+				}
+			}
+
+			// Check categories
+			fmt.Printf("\nCategories (%d):\n", len(cfg.Categories))
+			for _, cat := range cfg.Categories {
+				absFolder := filepath.Join(cfg.VaultRoot, filepath.FromSlash(cat.Folder))
+				if _, err := os.Stat(absFolder); err != nil {
+					warn("category %q folder missing: %s (will be created on first use)", cat.Name, cat.Folder)
+				} else {
+					info("category %q → %s", cat.Name, cat.Folder)
+				}
+				if cat.Template != "" {
+					tmplAbs := filepath.Join(cfg.VaultRoot, filepath.FromSlash(cfg.Vault.Templates), cat.Template+".md")
+					if _, err := os.Stat(tmplAbs); err != nil {
+						warn("category %q references missing template: %s", cat.Name, cat.Template)
+					}
+				}
+				if cat.MOC != "" {
+					mocAbs := filepath.Join(cfg.VaultRoot, filepath.FromSlash(cat.MOC))
+					if _, err := os.Stat(mocAbs); err != nil {
+						warn("category %q MOC file missing: %s", cat.Name, cat.MOC)
+					}
+				}
+			}
+
+			fmt.Println()
+			if ok {
+				fmt.Println("Vault configuration looks good.")
+			} else {
+				fmt.Fprintln(os.Stderr, "\nValidation completed with warnings.")
+			}
+			return nil
+		},
+	}
+
+	cmd.AddCommand(setDefault, showPath, validate)
 	return cmd
 }
 

@@ -146,6 +146,22 @@ func TestCLI_Version(t *testing.T) {
 	}
 }
 
+func TestCLI_ConfigValidate(t *testing.T) {
+	vault := testVaultPath(t)
+	stdout, stderr, code := runRicket(t, nil,
+		"config", "validate", "--vault-root", vault)
+
+	if code != 0 {
+		t.Fatalf("ricket config validate exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "Vault configuration looks good.") {
+		t.Errorf("expected success message, got stdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+	if !strings.Contains(stdout, "inbox directory exists") {
+		t.Errorf("expected inbox OK in output: %s", stdout)
+	}
+}
+
 func TestCLI_Init_ExistingConfig(t *testing.T) {
 	vault := testVaultPath(t)
 	// testdata/vault already has ricket.yaml — init should fail
