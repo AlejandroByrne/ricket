@@ -281,6 +281,37 @@ func TestCLI_CompletionCommand(t *testing.T) {
 	}
 }
 
+func TestCLI_ConfigScaffold(t *testing.T) {
+	vaultDir := t.TempDir()
+	input := strings.Repeat("\n", 64)
+
+	_, stderr, code := runRicketWithInput(t, nil, input, "init", vaultDir)
+	if code != 0 {
+		t.Fatalf("ricket init exited %d\nstderr: %s", code, stderr)
+	}
+
+	removeTargets := []string{
+		filepath.Join(vaultDir, "_templates", "person.md"),
+		filepath.Join(vaultDir, "Areas", "Org1", "people", "MOC.md"),
+	}
+	for _, target := range removeTargets {
+		if err := os.Remove(target); err != nil {
+			t.Fatalf("failed to remove %s: %v", target, err)
+		}
+	}
+
+	stdout, stderr, code := runRicket(t, nil, "config", "scaffold", "--vault-root", vaultDir)
+	if code != 0 {
+		t.Fatalf("config scaffold exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
+	}
+
+	for _, target := range removeTargets {
+		if _, err := os.Stat(target); err != nil {
+			t.Fatalf("expected scaffold to recreate %s: %v", target, err)
+		}
+	}
+}
+
 // ── MCP JSON-RPC E2E test ─────────────────────────────────────────────────────
 
 // copyDirAll recursively copies src to dst (dst must already be a temp dir).

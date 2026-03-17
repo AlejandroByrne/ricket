@@ -789,7 +789,30 @@ func configCmd() *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(setDefault, showPath, validate)
+	scaffold := &cobra.Command{
+		Use:   "scaffold",
+		Short: "Create any missing vault folders, templates, and MOC files from ricket.yaml",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			root, err := resolveRoot()
+			if err != nil {
+				return err
+			}
+
+			cfg, err := config.LoadConfig(root)
+			if err != nil {
+				return fmt.Errorf("config error: %w", err)
+			}
+
+			if err := scaffoldVault(cfg); err != nil {
+				return err
+			}
+
+			fmt.Println("Scaffolding complete.")
+			return nil
+		},
+	}
+
+	cmd.AddCommand(setDefault, showPath, validate, scaffold)
 	return cmd
 }
 

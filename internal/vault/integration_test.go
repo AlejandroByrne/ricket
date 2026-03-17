@@ -65,6 +65,9 @@ func copyVaultToTemp(t *testing.T) (string, *vault.Vault) {
 func copyDir(src, dst string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
 			return err
 		}
 		rel, err := filepath.Rel(src, path)
@@ -77,6 +80,9 @@ func copyDir(src, dst string) error {
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
 			return err
 		}
 		return os.WriteFile(target, data, info.Mode())
