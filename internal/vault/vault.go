@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	gitpkg "github.com/AlejandroByrne/ricket/internal/git"
@@ -52,6 +53,7 @@ type Vault struct {
 	index      *VaultIndex
 	ga         *gitpkg.GitAudit
 	indexDirty bool
+	mu         sync.RWMutex // protects indexDirty
 }
 
 // New creates a Vault for the given config.
@@ -107,12 +109,17 @@ func (v *Vault) validatePath(relPath string) error {
 // ensureIndex rebuilds the SQLite index from the filesystem if the dirty flag is set.
 // It is a no-op when no index is available.
 func (v *Vault) ensureIndex() {
-	if v.index == nil || !v.indexDirty {
+	v.mu.RLock()
+	skip := v.index == nil || !v.indexDirty
+	v.mu.RUnlock()
+	if skip {
 		return
 	}
 	notes := v.walkAllNoteRecords()
 	_ = v.index.Rebuild(notes) // best-effort; walk search still works on failure
+	v.mu.Lock()
 	v.indexDirty = false
+	v.mu.Unlock()
 }
 
 // walkAllNoteRecords walks the entire vault and returns NoteRecord slices
@@ -160,7 +167,9 @@ func (v *Vault) walkAllNoteRecords() []NoteRecord {
 
 // markDirty marks the index as needing rebuild. Call after any mutation.
 func (v *Vault) markDirty() {
+	v.mu.Lock()
 	v.indexDirty = true
+	v.mu.Unlock()
 }
 
 // ── Read operations ───────────────────────────────────────────────────────────
@@ -252,9 +261,13 @@ func (v *Vault) searchViaIndex(opts SearchOptions) ([]VaultNote, error) {
 
 	var notes []VaultNote
 	for path := range pathSet {
-		// Apply folder filter
+		// Apply folder filter — always use a trailing slash so "Areas/Eng" doesn't
+		// match "Areas/Engineering2/..." via a bare prefix check.
 		if opts.Folder != "" {
-			folder := filepath.ToSlash(filepath.Clean(opts.Folder))
+			folder := filepath.ToSlash(opts.Folder)
+			if !strings.HasSuffix(folder, "/") {
+				folder += "/"
+			}
 			if !strings.HasPrefix(filepath.ToSlash(path), folder) {
 				continue
 			}
