@@ -390,6 +390,37 @@ func TestTriage_InboxCountDecreases(t *testing.T) {
 	}
 }
 
+func TestTriage_NeedsApproval_Configurable(t *testing.T) {
+	dir := testdataVaultPath(t)
+	cfg, err := config.LoadConfig(dir)
+	if err != nil {
+		t.Fatalf("LoadConfig(testdata/vault): %v", err)
+	}
+
+	noApprove := false
+	if cfg.MCP == nil {
+		cfg.MCP = &config.MCPConfig{}
+	}
+	cfg.MCP.NeedsApproval = &noApprove
+
+	v := vault.New(cfg)
+	t.Cleanup(func() { v.Close() })
+
+	plan, err := v.PlanInboxTriage()
+	if err != nil {
+		t.Fatalf("PlanInboxTriage: %v", err)
+	}
+	if len(plan.Proposals) == 0 {
+		t.Fatal("expected at least one triage proposal")
+	}
+
+	for _, p := range plan.Proposals {
+		if p.NeedsApprove {
+			t.Fatalf("proposal %q unexpectedly requires approval", p.Source)
+		}
+	}
+}
+
 func TestTriage_MOCUpdated(t *testing.T) {
 	dir, v := copyVaultToTemp(t)
 

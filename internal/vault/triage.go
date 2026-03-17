@@ -46,6 +46,7 @@ func (v *Vault) PlanInboxTriage() (TriagePlan, error) {
 	}
 
 	plan := TriagePlan{GeneratedAt: time.Now().UTC().Format(time.RFC3339)}
+	needsApprove := v.cfg.MCP.RequireTriageApproval()
 	for _, n := range inbox {
 		category, score, matches := classifyNote(n, v.cfg.Categories)
 		if category == nil || score == 0 {
@@ -76,7 +77,7 @@ func (v *Vault) PlanInboxTriage() (TriagePlan, error) {
 			MOC:          category.MOC,
 			Confidence:   confidence,
 			Signals:      matches,
-			NeedsApprove: true,
+			NeedsApprove: needsApprove,
 		})
 	}
 

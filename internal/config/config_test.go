@@ -156,6 +156,33 @@ mcp:
 		if cfg.MCP.Name != "myvault" {
 			t.Errorf("MCP.Name = %q, want myvault", cfg.MCP.Name)
 		}
+		if !cfg.MCP.RequireTriageApproval() {
+			t.Error("RequireTriageApproval() = false, want true by default")
+		}
+	})
+
+	t.Run("mcp_needs_approval_false", func(t *testing.T) {
+		dir := t.TempDir()
+		writeYAML(t, dir, `
+categories:
+  - name: note
+    folder: Notes/
+    tags: [note]
+mcp:
+  name: myvault
+  version: 1.0.0
+  needsApproval: false
+`)
+		cfg, err := config.LoadConfig(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.MCP == nil {
+			t.Fatal("expected MCP config to be set")
+		}
+		if cfg.MCP.RequireTriageApproval() {
+			t.Error("RequireTriageApproval() = true, want false")
+		}
 	})
 }
 

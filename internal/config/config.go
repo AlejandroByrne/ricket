@@ -39,8 +39,18 @@ type Category struct {
 
 // MCPConfig holds optional MCP server metadata.
 type MCPConfig struct {
-	Name    string `yaml:"name,omitempty"`
-	Version string `yaml:"version,omitempty"`
+	Name          string `yaml:"name,omitempty"`
+	Version       string `yaml:"version,omitempty"`
+	NeedsApproval *bool  `yaml:"needsApproval,omitempty"`
+}
+
+// RequireTriageApproval reports whether triage proposals should require approval.
+// Defaults to true when the field is not configured.
+func (m *MCPConfig) RequireTriageApproval() bool {
+	if m == nil || m.NeedsApproval == nil {
+		return true
+	}
+	return *m.NeedsApproval
 }
 
 // rawConfig mirrors the YAML structure for parsing (before defaults are applied).
@@ -201,10 +211,15 @@ func GenerateDefaultConfig(vaultRoot string) *RicketConfig {
 			},
 		},
 		MCP: &MCPConfig{
-			Name:    "ricket",
-			Version: "0.2.0",
+			Name:          "ricket",
+			Version:       "0.2.0",
+			NeedsApproval: boolPtr(true),
 		},
 	}
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }
 
 // WriteConfig serializes cfg to ricket.yaml at vaultRoot.

@@ -271,6 +271,7 @@ categories:
 mcp:
   name: ricket      # name shown in MCP client
   version: 0.2.0
+  needsApproval: true # set false to skip triage approval prompts
 ```
 
 ### Signal hints
