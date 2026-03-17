@@ -23,7 +23,7 @@ func main() {
 	root := &cobra.Command{
 		Use:     "ricket",
 		Short:   "Vault-powered context engine for AI coding agents",
-		Version: "0.1.0",
+		Version: "0.2.0",
 	}
 	root.PersistentFlags().StringVarP(&vaultRoot, "vault-root", "r", "",
 		"Vault root directory (overrides RICKET_VAULT_ROOT env var and ~/.config/ricket/config.yaml)")
@@ -415,7 +415,7 @@ func buildConfigFromWizard(a wizardAnswers) *config.RicketConfig {
 		},
 		MCP: &config.MCPConfig{
 			Name:    "ricket",
-			Version: "0.1.0",
+			Version: "0.2.0",
 		},
 	}
 

@@ -30,7 +30,7 @@ Verify installation:
 
 ```bash
 ricket --version
-# Output: ricket version 0.1.0
+# Output: ricket version 0.2.0
 ```
 
 If the `ricket` command is not found, ensure `$(go env GOPATH)/bin` is on your `PATH`:

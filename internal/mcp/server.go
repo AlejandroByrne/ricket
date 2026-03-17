@@ -35,7 +35,7 @@ func (s *RicketMCPServer) Start() error {
 	defer s.vault.Close() //nolint:errcheck — best-effort on shutdown
 
 	name := "ricket"
-	version := "0.1.0"
+	version := "0.2.0"
 	if cfg.MCP != nil {
 		if cfg.MCP.Name != "" {
 			name = cfg.MCP.Name
