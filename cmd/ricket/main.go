@@ -42,10 +42,18 @@ func main() {
 //  4. Current working directory
 func resolveRoot() (string, error) {
 	if vaultRoot != "" {
-		return filepath.Abs(vaultRoot)
+		clean := filepath.Clean(filepath.FromSlash(vaultRoot))
+		if filepath.IsAbs(clean) {
+			return clean, nil
+		}
+		return filepath.Abs(clean)
 	}
 	if env := os.Getenv("RICKET_VAULT_ROOT"); env != "" {
-		return filepath.Abs(env)
+		clean := filepath.Clean(filepath.FromSlash(env))
+		if filepath.IsAbs(clean) {
+			return clean, nil
+		}
+		return filepath.Abs(clean)
 	}
 	if home, err := os.UserHomeDir(); err == nil {
 		cfgPath := filepath.Join(home, ".config", "ricket", "config.yaml")
@@ -54,7 +62,11 @@ func resolveRoot() (string, error) {
 				DefaultVault string `yaml:"default_vault"`
 			}
 			if err := yaml.Unmarshal(data, &uc); err == nil && uc.DefaultVault != "" {
-				return filepath.Abs(uc.DefaultVault)
+				clean := filepath.Clean(filepath.FromSlash(uc.DefaultVault))
+				if filepath.IsAbs(clean) {
+					return clean, nil
+				}
+				return filepath.Abs(clean)
 			}
 		}
 	}
@@ -221,7 +233,8 @@ func runWizard(defaultRoot string) error {
 	}
 
 	if err := scaffoldVault(cfg); err != nil {
-		return err
+		fmt.Fprintf(os.Stderr, "Warning: failed to scaffold vault: %v\n", err)
+		return fmt.Errorf("scaffold vault: %w", err)
 	}
 
 	setupVSCode := promptBool(reader, "Create .vscode/mcp.json for GitHub Copilot in this vault?", true)
