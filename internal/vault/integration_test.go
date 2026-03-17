@@ -498,6 +498,89 @@ func TestTriage_IndexDirtyAfterFileNote(t *testing.T) {
 	}
 }
 
+// ── UpdateNote integration ─────────────────────────────────────────────────────
+
+func TestUpdateNote_ContentPersisted(t *testing.T) {
+	_, v := copyVaultToTemp(t)
+
+	result, err := v.UpdateNote(vault.UpdateNoteOptions{
+		Path:    "Areas/Engineering/decisions/use-sqlite-for-index.md",
+		Content: "# Rewritten\n\nFully rewritten content.",
+	})
+	if err != nil {
+		t.Fatalf("UpdateNote: %v", err)
+	}
+	if result.Path != "Areas/Engineering/decisions/use-sqlite-for-index.md" {
+		t.Errorf("result.Path = %q", result.Path)
+	}
+
+	note, err := v.ReadNote("Areas/Engineering/decisions/use-sqlite-for-index.md")
+	if err != nil {
+		t.Fatalf("ReadNote after update: %v", err)
+	}
+	if !strings.Contains(note.Parsed.Content, "Fully rewritten content.") {
+		t.Errorf("content not persisted: %q", note.Parsed.Content)
+	}
+}
+
+func TestUpdateNote_IndexDirtyAfterUpdate(t *testing.T) {
+	_, v := copyVaultToTemp(t)
+
+	// Seed index
+	before, err := v.SearchNotes(vault.SearchOptions{Query: "uniquekeyword99"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 0 {
+		t.Fatalf("expected 0 results before update, got %d", len(before))
+	}
+
+	_, err = v.UpdateNote(vault.UpdateNoteOptions{
+		Path:    "Areas/Engineering/decisions/use-sqlite-for-index.md",
+		Content: "# Updated\n\nThis note now contains uniquekeyword99.",
+	})
+	if err != nil {
+		t.Fatalf("UpdateNote: %v", err)
+	}
+
+	// Index should be dirty; rebuild should find the updated content
+	after, err := v.SearchNotes(vault.SearchOptions{Query: "uniquekeyword99"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) == 0 {
+		t.Error("expected note to be findable after content update + index rebuild")
+	}
+}
+
+func TestGitAudit_UpdateNoteCommits(t *testing.T) {
+	dir, v := copyVaultToTemp(t)
+	initGitRepo(t, dir)
+
+	v.Close()
+	cfg, _ := config.LoadConfig(dir)
+	v = vault.New(cfg)
+	defer v.Close()
+
+	result, err := v.UpdateNote(vault.UpdateNoteOptions{
+		Path:    "Areas/Engineering/decisions/use-sqlite-for-index.md",
+		Content: "# Updated\n\nNew content.",
+	})
+	if err != nil {
+		t.Fatalf("UpdateNote: %v", err)
+	}
+	if !result.GitCommitted {
+		t.Error("GitCommitted should be true when vault is a git repo")
+	}
+
+	cmd := exec.Command("git", "log", "--oneline", "-1")
+	cmd.Dir = dir
+	out, _ := cmd.Output()
+	if !strings.Contains(string(out), "ricket") {
+		t.Errorf("expected ricket commit in log, got: %s", out)
+	}
+}
+
 // ── git audit integration ─────────────────────────────────────────────────────
 
 func TestGitAudit_FileNoteCommits(t *testing.T) {

@@ -227,6 +227,132 @@ func TestListInbox(t *testing.T) {
 	}
 }
 
+func TestUpdateNote(t *testing.T) {
+	dir, cfg := makeTestVault(t)
+	v := vault.New(cfg)
+	defer v.Close()
+
+	// Seed a note to update
+	writeNote(t, dir, "Notes/subject.md",
+		"---\ntags: [existing]\n---\n# Subject\n\nOriginal body.")
+
+	t.Run("update_content", func(t *testing.T) {
+		_, err := v.UpdateNote(vault.UpdateNoteOptions{
+			Path:    "Notes/subject.md",
+			Content: "Replaced body.",
+		})
+		if err != nil {
+			t.Fatalf("UpdateNote content: %v", err)
+		}
+		data, _ := os.ReadFile(filepath.Join(dir, "Notes", "subject.md"))
+		if !strings.Contains(string(data), "Replaced body.") {
+			t.Errorf("content not updated: %s", data)
+		}
+		if strings.Contains(string(data), "Original body.") {
+			t.Error("old content should be gone after update")
+		}
+	})
+
+	t.Run("add_tags", func(t *testing.T) {
+		writeNote(t, dir, "Notes/for-tags.md", "---\ntags: [old]\n---\n# Tag test\n\nBody.")
+		_, err := v.UpdateNote(vault.UpdateNoteOptions{
+			Path: "Notes/for-tags.md",
+			Tags: []string{"new1", "new2"},
+		})
+		if err != nil {
+			t.Fatalf("UpdateNote tags: %v", err)
+		}
+		data, _ := os.ReadFile(filepath.Join(dir, "Notes", "for-tags.md"))
+		if !strings.Contains(string(data), "new1") || !strings.Contains(string(data), "new2") {
+			t.Errorf("new tags missing: %s", data)
+		}
+		if !strings.Contains(string(data), "old") {
+			t.Errorf("existing tag 'old' should be preserved: %s", data)
+		}
+	})
+
+	t.Run("add_tags_deduplicates", func(t *testing.T) {
+		writeNote(t, dir, "Notes/for-dedup.md", "---\ntags: [alpha]\n---\n# Dedup\n\nBody.")
+		_, err := v.UpdateNote(vault.UpdateNoteOptions{
+			Path: "Notes/for-dedup.md",
+			Tags: []string{"alpha", "beta"}, // alpha already present
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		note, _ := v.ReadNote("Notes/for-dedup.md")
+		tags := vault.GetTags(note.Parsed)
+		alphaCount := 0
+		for _, tg := range tags {
+			if tg == "alpha" {
+				alphaCount++
+			}
+		}
+		if alphaCount != 1 {
+			t.Errorf("expected 'alpha' exactly once, got %d times in %v", alphaCount, tags)
+		}
+	})
+
+	t.Run("add_links", func(t *testing.T) {
+		writeNote(t, dir, "Notes/for-links.md", "---\ntags: []\n---\n# Links test\n\nBody.")
+		_, err := v.UpdateNote(vault.UpdateNoteOptions{
+			Path:  "Notes/for-links.md",
+			Links: []string{"SomeRef", "OtherRef"},
+		})
+		if err != nil {
+			t.Fatalf("UpdateNote links: %v", err)
+		}
+		data, _ := os.ReadFile(filepath.Join(dir, "Notes", "for-links.md"))
+		if !strings.Contains(string(data), "[[SomeRef]]") {
+			t.Errorf("wikilink SomeRef missing: %s", data)
+		}
+	})
+
+	t.Run("returns_path", func(t *testing.T) {
+		writeNote(t, dir, "Notes/path-check.md", "---\ntags: []\n---\n# X\n\nY.")
+		res, err := v.UpdateNote(vault.UpdateNoteOptions{
+			Path:    "Notes/path-check.md",
+			Content: "Updated.",
+		})
+		if err != nil {
+			t.Fatalf("UpdateNote: %v", err)
+		}
+		if res.Path != "Notes/path-check.md" {
+			t.Errorf("result.Path = %q, want Notes/path-check.md", res.Path)
+		}
+	})
+
+	t.Run("missing_note", func(t *testing.T) {
+		_, err := v.UpdateNote(vault.UpdateNoteOptions{
+			Path:    "Notes/does-not-exist.md",
+			Content: "content",
+		})
+		if err == nil {
+			t.Error("expected error for missing note")
+		}
+	})
+
+	t.Run("empty_update_rejected", func(t *testing.T) {
+		_, err := v.UpdateNote(vault.UpdateNoteOptions{
+			Path: "Notes/subject.md",
+			// no content, tags, or links
+		})
+		if err == nil {
+			t.Error("expected error when nothing to update")
+		}
+	})
+
+	t.Run("traversal_rejected", func(t *testing.T) {
+		_, err := v.UpdateNote(vault.UpdateNoteOptions{
+			Path:    "../../etc/passwd",
+			Content: "evil",
+		})
+		if err == nil {
+			t.Error("expected error for traversal path")
+		}
+	})
+}
+
 func TestSearchNotes(t *testing.T) {
 	dir, cfg := makeTestVault(t)
 	v := vault.New(cfg)
