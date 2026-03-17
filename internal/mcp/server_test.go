@@ -1,4 +1,4 @@
-// Package mcp — white-box tests for all 8 MCP tool handlers.
+// Package mcp — white-box tests for MCP tool handlers.
 // Tests call handler functions directly (no subprocess needed) using the
 // testdata/vault fixture.
 package mcp
@@ -147,6 +147,31 @@ func TestHandler_ListInbox(t *testing.T) {
 		if len([]rune(preview)) > 200 {
 			t.Errorf("preview exceeds 200 runes: %d", len([]rune(preview)))
 		}
+	}
+}
+
+func TestHandler_TriageInbox(t *testing.T) {
+	s := makeServer(t)
+	h := handleVaultTriageInbox(s)
+
+	resp, isErr := callHandler(t, h, nil)
+	if isErr {
+		t.Fatal("unexpected error result")
+	}
+
+	proposals, ok := resp["proposals"].([]any)
+	if !ok {
+		t.Fatalf("expected proposals array, got %T", resp["proposals"])
+	}
+	unresolved, ok := resp["unresolved"].([]any)
+	if !ok {
+		t.Fatalf("expected unresolved array, got %T", resp["unresolved"])
+	}
+	if len(proposals)+len(unresolved) != 3 {
+		t.Errorf("expected 3 total triage outcomes, got proposals=%d unresolved=%d", len(proposals), len(unresolved))
+	}
+	if _, ok := resp["generatedAt"].(string); !ok {
+		t.Fatalf("expected generatedAt timestamp in response")
 	}
 }
 

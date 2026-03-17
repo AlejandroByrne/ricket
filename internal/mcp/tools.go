@@ -13,9 +13,10 @@ import (
 	"github.com/AlejandroByrne/ricket/internal/vault"
 )
 
-// registerTools registers all 9 ricket MCP tools on srv.
+// registerTools registers all ricket MCP tools on srv.
 func registerTools(srv *mcpserver.MCPServer, s *RicketMCPServer) {
 	srv.AddTool(toolListInbox(), handleVaultListInbox(s))
+	srv.AddTool(toolTriageInbox(), handleVaultTriageInbox(s))
 	srv.AddTool(toolReadNote(), handleVaultReadNote(s))
 	srv.AddTool(toolSearch(), handleVaultSearch(s))
 	srv.AddTool(toolGetCategories(), handleVaultGetCategories(s))
@@ -31,6 +32,12 @@ func registerTools(srv *mcpserver.MCPServer, s *RicketMCPServer) {
 func toolListInbox() mcplib.Tool {
 	return mcplib.NewTool("vault_list_inbox",
 		mcplib.WithDescription("List all notes in the vault inbox. Returns path, name, and a 200-character preview for each note."),
+	)
+}
+
+func toolTriageInbox() mcplib.Tool {
+	return mcplib.NewTool("vault_triage_inbox",
+		mcplib.WithDescription("Analyze Inbox notes and propose filing actions with category, destination path, confidence, and matched signals. Does not move files."),
 	)
 }
 
@@ -190,6 +197,18 @@ func handleVaultListInbox(s *RicketMCPServer) mcpserver.ToolHandlerFunc {
 		}
 
 		out, _ := json.MarshalIndent(result, "", "  ")
+		return mcplib.NewToolResultText(string(out)), nil
+	}
+}
+
+func handleVaultTriageInbox(s *RicketMCPServer) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		plan, err := s.vault.PlanInboxTriage()
+		if err != nil {
+			return mcplib.NewToolResultError(err.Error()), nil
+		}
+
+		out, _ := json.MarshalIndent(plan, "", "  ")
 		return mcplib.NewToolResultText(string(out)), nil
 	}
 }

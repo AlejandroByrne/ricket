@@ -74,6 +74,27 @@ func runRicket(t *testing.T, env []string, args ...string) (stdout, stderr strin
 	return outBuf.String(), errBuf.String(), exitCode
 }
 
+// runRicketWithInput runs the ricket binary with stdin input.
+func runRicketWithInput(t *testing.T, env []string, input string, args ...string) (stdout, stderr string, exitCode int) {
+	t.Helper()
+	cmd := exec.Command(binaryPath, args...)
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	cmd.Stdin = strings.NewReader(input)
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	err := cmd.Run()
+	exitCode = 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		}
+	}
+	return outBuf.String(), errBuf.String(), exitCode
+}
+
 // ── CLI tests ─────────────────────────────────────────────────────────────────
 
 func TestCLI_Status(t *testing.T) {
@@ -171,6 +192,90 @@ func TestCLI_Init_ExistingConfig(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "already exists") {
 		t.Errorf("expected 'already exists' in stderr: %s", stderr)
+	}
+}
+
+func TestCLI_Init_ScaffoldsVault(t *testing.T) {
+	vaultDir := t.TempDir()
+	// Accept defaults for every prompt.
+	input := strings.Repeat("\n", 64)
+
+	_, stderr, code := runRicketWithInput(t, nil, input, "init", vaultDir)
+	if code != 0 {
+		t.Fatalf("ricket init exited %d\nstderr: %s", code, stderr)
+	}
+
+	for _, p := range []string{
+		"ricket.yaml",
+		"Inbox",
+		"Archive",
+		"_templates",
+		"_templates/decision.md",
+		"_templates/concept.md",
+		"_templates/meeting.md",
+		"_templates/project.md",
+		"_templates/learning.md",
+		"Areas/Org1/decisions/MOC.md",
+		"Areas/Org1/concepts/MOC.md",
+		"Projects/Org1/MOC.md",
+		"Areas/Personal Development/MOC.md",
+	} {
+		if _, err := os.Stat(filepath.Join(vaultDir, filepath.FromSlash(p))); err != nil {
+			t.Errorf("expected %s to exist: %v", p, err)
+		}
+	}
+
+	stdout, _, statusCode := runRicket(t, nil, "config", "validate", "--vault-root", vaultDir)
+	if statusCode != 0 {
+		t.Fatalf("config validate exited %d\nstdout: %s", statusCode, stdout)
+	}
+	if !strings.Contains(stdout, "Vault configuration looks good.") {
+		t.Errorf("expected validation success output, got:\n%s", stdout)
+	}
+}
+
+func TestCLI_MCPInitVSCode_WritesConfig(t *testing.T) {
+	vault := testVaultPath(t)
+	workspace := t.TempDir()
+
+	stdout, stderr, code := runRicket(t, nil,
+		"mcp", "init-vscode", workspace, "--vault-root", vault)
+	if code != 0 {
+		t.Fatalf("mcp init-vscode exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
+	}
+
+	data, err := os.ReadFile(filepath.Join(workspace, ".vscode", "mcp.json"))
+	if err != nil {
+		t.Fatalf("read generated mcp.json: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("unmarshal mcp.json: %v", err)
+	}
+	servers, ok := parsed["servers"].(map[string]any)
+	if !ok {
+		t.Fatalf("servers key missing or wrong type: %T", parsed["servers"])
+	}
+	rawRicket, ok := servers["ricket"].(map[string]any)
+	if !ok {
+		t.Fatalf("ricket server missing from generated config")
+	}
+	if rawRicket["command"] == "ricket" {
+		t.Error("expected absolute command path in generated config, got plain 'ricket'")
+	}
+	env, _ := rawRicket["env"].(map[string]any)
+	if env["RICKET_VAULT_ROOT"] != vault {
+		t.Errorf("RICKET_VAULT_ROOT = %v, want %s", env["RICKET_VAULT_ROOT"], vault)
+	}
+}
+
+func TestCLI_CompletionCommand(t *testing.T) {
+	stdout, stderr, code := runRicket(t, nil, "completion", "powershell")
+	if code != 0 {
+		t.Fatalf("completion command exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "Register-ArgumentCompleter") {
+		t.Errorf("expected powershell completion script output, got:\n%s", stdout)
 	}
 }
 
@@ -323,8 +428,8 @@ func TestMCP_E2E(t *testing.T) {
 	if !ok {
 		t.Fatalf("tools/list result.tools: %T", listResult["tools"])
 	}
-	if len(tools) != 9 {
-		t.Errorf("expected 9 tools, got %d", len(tools))
+	if len(tools) != 10 {
+		t.Errorf("expected 10 tools, got %d", len(tools))
 	}
 	toolNames := make([]string, 0, len(tools))
 	for _, raw := range tools {
@@ -332,7 +437,7 @@ func TestMCP_E2E(t *testing.T) {
 		toolNames = append(toolNames, tool["name"].(string))
 	}
 	for _, want := range []string{
-		"vault_list_inbox", "vault_read_note", "vault_search",
+		"vault_list_inbox", "vault_triage_inbox", "vault_read_note", "vault_search",
 		"vault_get_categories", "vault_get_templates",
 		"vault_file_note", "vault_create_note", "vault_update_note", "vault_status",
 	} {

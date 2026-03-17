@@ -56,6 +56,7 @@ func writeNote(t *testing.T, dir, relPath, content string) {
 func TestStatus(t *testing.T) {
 	dir, cfg := makeTestVault(t)
 	v := vault.New(cfg)
+	defer v.Close()
 
 	// Empty vault
 	status, err := v.Status()
@@ -88,6 +89,7 @@ func TestStatus(t *testing.T) {
 func TestCreateNote(t *testing.T) {
 	dir, cfg := makeTestVault(t)
 	v := vault.New(cfg)
+	defer v.Close()
 
 	t.Run("basic_create", func(t *testing.T) {
 		err := v.CreateNote("Notes/my-note.md", "# My Note\n\nContent.", nil, nil, "")
@@ -145,6 +147,7 @@ func TestCreateNote(t *testing.T) {
 func TestFileNote(t *testing.T) {
 	dir, cfg := makeTestVault(t)
 	v := vault.New(cfg)
+	defer v.Close()
 
 	// Prepare source in Inbox
 	writeNote(t, dir, "Inbox/raw-capture.md", "---\ntags: []\n---\n# Raw\n\nRaw content.")
@@ -206,6 +209,7 @@ func TestFileNote(t *testing.T) {
 func TestListInbox(t *testing.T) {
 	dir, cfg := makeTestVault(t)
 	v := vault.New(cfg)
+	defer v.Close()
 
 	notes, err := v.ListInbox()
 	if err != nil {
@@ -356,6 +360,7 @@ func TestUpdateNote(t *testing.T) {
 func TestSearchNotes(t *testing.T) {
 	dir, cfg := makeTestVault(t)
 	v := vault.New(cfg)
+	defer v.Close()
 
 	writeNote(t, dir, "Notes/alpha.md", "---\ntags: [project, active]\n---\n# Alpha\n\nAlpha content.")
 	writeNote(t, dir, "Notes/beta.md", "---\ntags: [project]\n---\n# Beta\n\nBeta content.")

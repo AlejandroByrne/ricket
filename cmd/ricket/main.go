@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -26,7 +28,7 @@ func main() {
 	root.PersistentFlags().StringVarP(&vaultRoot, "vault-root", "r", "",
 		"Vault root directory (overrides RICKET_VAULT_ROOT env var and ~/.config/ricket/config.yaml)")
 
-	root.AddCommand(initCmd(), serveCmd(), statusCmd(), configCmd())
+	root.AddCommand(initCmd(), serveCmd(), statusCmd(), configCmd(), mcpCmd(), completionCmd(root))
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -218,6 +220,19 @@ func runWizard(defaultRoot string) error {
 		return err
 	}
 
+	if err := scaffoldVault(cfg); err != nil {
+		return err
+	}
+
+	setupVSCode := promptBool(reader, "Create .vscode/mcp.json for GitHub Copilot in this vault?", true)
+	if setupVSCode {
+		if err := writeVSCodeMCPConfig(vaultPath, vaultPath); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not write .vscode/mcp.json: %v\n", err)
+		} else {
+			fmt.Fprintln(os.Stderr, "  ✓ .vscode/mcp.json written")
+		}
+	}
+
 	// Offer to set as default vault
 	setDefault := promptBool(reader, "\nSet this as your default vault in ~/.config/ricket/config.yaml?", true)
 	if setDefault {
@@ -229,11 +244,122 @@ func runWizard(defaultRoot string) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "\n✓ ricket.yaml written to %s\n", filepath.Join(vaultPath, "ricket.yaml"))
+	fmt.Fprintln(os.Stderr, "✓ Vault folders/templates scaffolded")
 	fmt.Fprintln(os.Stderr, "\nNext steps:")
 	fmt.Fprintln(os.Stderr, "  1. Review and edit ricket.yaml to fine-tune categories")
-	fmt.Fprintln(os.Stderr, "  2. Add ricket to your MCP client — see README.md")
+	fmt.Fprintln(os.Stderr, "  2. Add ricket to your MCP client — run: ricket mcp init-vscode /path/to/workspace")
 	fmt.Fprintf(os.Stderr, "  3. Run: ricket status --vault-root %s\n", vaultPath)
 	return nil
+}
+
+func scaffoldVault(cfg *config.RicketConfig) error {
+	requiredDirs := []string{cfg.Vault.Inbox, cfg.Vault.Archive, cfg.Vault.Templates}
+	for _, d := range requiredDirs {
+		if err := os.MkdirAll(filepath.Join(cfg.VaultRoot, filepath.FromSlash(d)), 0o755); err != nil {
+			return fmt.Errorf("failed to create %s: %w", d, err)
+		}
+	}
+
+	for _, c := range cfg.Categories {
+		if err := os.MkdirAll(filepath.Join(cfg.VaultRoot, filepath.FromSlash(c.Folder)), 0o755); err != nil {
+			return fmt.Errorf("failed to create category folder %s: %w", c.Folder, err)
+		}
+
+		if c.Template != "" {
+			tmplPath := filepath.Join(cfg.VaultRoot, filepath.FromSlash(cfg.Vault.Templates), c.Template+".md")
+			if _, err := os.Stat(tmplPath); os.IsNotExist(err) {
+				if err := os.WriteFile(tmplPath, []byte(defaultTemplateContent(c.Template)), 0o644); err != nil {
+					return fmt.Errorf("failed to write template %s: %w", c.Template, err)
+				}
+			}
+		}
+
+		if c.MOC != "" {
+			mocPath := filepath.Join(cfg.VaultRoot, filepath.FromSlash(c.MOC))
+			if err := os.MkdirAll(filepath.Dir(mocPath), 0o755); err != nil {
+				return fmt.Errorf("failed to create MOC folder for %s: %w", c.MOC, err)
+			}
+			if _, err := os.Stat(mocPath); os.IsNotExist(err) {
+				title := strings.TrimSuffix(filepath.Base(c.MOC), ".md")
+				if title == "" {
+					title = "MOC"
+				}
+				if err := os.WriteFile(mocPath, []byte("# "+title+"\n\n"), 0o644); err != nil {
+					return fmt.Errorf("failed to write MOC %s: %w", c.MOC, err)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func defaultTemplateContent(name string) string {
+	switch name {
+	case "decision":
+		return "---\ntitle: <% tp.file.title %>\ndate: <% tp.date.now(\"YYYY-MM-DD\") %>\ntags: [decision]\nstatus: active\n---\n\n# <% tp.file.title %>\n\n## Decision\n\n## Rationale\n\n## Consequences\n\n## Alternatives Considered\n\n## Links\n"
+	case "concept":
+		return "---\ntitle: <% tp.file.title %>\ndate: <% tp.date.now(\"YYYY-MM-DD\") %>\ntags: [concept]\n---\n\n# <% tp.file.title %>\n\n## What It Is\n\n## How We Use It\n\n## Examples\n\n## Links\n"
+	case "meeting":
+		return "---\ntitle: <% tp.file.title %>\ndate: <% tp.date.now(\"YYYY-MM-DD\") %>\ntags: [meeting]\nattendees: []\n---\n\n# <% tp.file.title %>\n\n## Agenda\n\n## Notes\n\n## Action Items\n\n## Decisions Made\n\n## Links\n"
+	case "project":
+		return "---\ntitle: <% tp.file.title %>\ndate: <% tp.date.now(\"YYYY-MM-DD\") %>\ntags: [project]\nstatus: active\n---\n\n# <% tp.file.title %>\n\n## Goal\n\n## Scope\n\n## Progress\n\n## Decisions\n\n## Links\n"
+	case "learning":
+		return "---\ntitle: <% tp.file.title %>\ndate: <% tp.date.now(\"YYYY-MM-DD\") %>\ntags: [learning]\n---\n\n# <% tp.file.title %>\n\n## Summary\n\n## Key Concepts\n\n## How I'll Use This\n\n## Links\n"
+	default:
+		return "---\ntitle: <% tp.file.title %>\ndate: <% tp.date.now(\"YYYY-MM-DD\") %>\n---\n\n# <% tp.file.title %>\n\n## Notes\n"
+	}
+}
+
+func writeVSCodeMCPConfig(workspacePath, vaultPath string) error {
+	command := resolveRicketCommand()
+
+	type vscodeServer struct {
+		Type    string            `json:"type"`
+		Command string            `json:"command"`
+		Args    []string          `json:"args"`
+		Env     map[string]string `json:"env,omitempty"`
+	}
+	type vscodeMCPConfig struct {
+		Servers map[string]vscodeServer `json:"servers"`
+	}
+
+	cfg := vscodeMCPConfig{
+		Servers: map[string]vscodeServer{
+			"ricket": {
+				Type:    "stdio",
+				Command: command,
+				Args:    []string{"serve"},
+				Env: map[string]string{
+					"RICKET_VAULT_ROOT": vaultPath,
+				},
+			},
+		},
+	}
+
+	if err := os.MkdirAll(filepath.Join(workspacePath, ".vscode"), 0o755); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(filepath.Join(workspacePath, ".vscode", "mcp.json"), data, 0o644)
+}
+
+func resolveRicketCommand() string {
+	if p, err := exec.LookPath("ricket"); err == nil {
+		if abs, absErr := filepath.Abs(p); absErr == nil {
+			return abs
+		}
+		return p
+	}
+	if abs, err := filepath.Abs(os.Args[0]); err == nil {
+		return abs
+	}
+	return "ricket"
 }
 
 type orgEntry struct {
@@ -633,6 +759,66 @@ func configCmd() *cobra.Command {
 
 	cmd.AddCommand(setDefault, showPath, validate)
 	return cmd
+}
+
+func mcpCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "mcp",
+		Short: "Generate MCP client configuration files",
+	}
+
+	vscode := &cobra.Command{
+		Use:   "init-vscode [workspace-path]",
+		Short: "Write .vscode/mcp.json for GitHub Copilot",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			workspace := "."
+			if len(args) == 1 {
+				workspace = args[0]
+			}
+			workspaceAbs, err := filepath.Abs(workspace)
+			if err != nil {
+				return err
+			}
+
+			root, err := resolveRoot()
+			if err != nil {
+				return err
+			}
+
+			if err := writeVSCodeMCPConfig(workspaceAbs, root); err != nil {
+				return err
+			}
+
+			fmt.Printf("Wrote %s\n", filepath.Join(workspaceAbs, ".vscode", "mcp.json"))
+			return nil
+		},
+	}
+
+	cmd.AddCommand(vscode)
+	return cmd
+}
+
+func completionCmd(root *cobra.Command) *cobra.Command {
+	return &cobra.Command{
+		Use:   "completion [bash|zsh|fish|powershell]",
+		Short: "Generate shell completion scripts",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			switch strings.ToLower(args[0]) {
+			case "bash":
+				return root.GenBashCompletion(os.Stdout)
+			case "zsh":
+				return root.GenZshCompletion(os.Stdout)
+			case "fish":
+				return root.GenFishCompletion(os.Stdout, true)
+			case "powershell":
+				return root.GenPowerShellCompletionWithDesc(os.Stdout)
+			default:
+				return fmt.Errorf("unsupported shell %q", args[0])
+			}
+		},
+	}
 }
 
 // ── Prompt helpers ────────────────────────────────────────────────────────────

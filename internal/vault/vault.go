@@ -93,6 +93,9 @@ func (v *Vault) validatePath(relPath string) error {
 	if strings.TrimSpace(relPath) == "" {
 		return fmt.Errorf("path cannot be empty")
 	}
+	if strings.HasPrefix(relPath, "/") || strings.HasPrefix(relPath, "\\") {
+		return fmt.Errorf("path must be relative, got rooted path %q", relPath)
+	}
 	if filepath.IsAbs(relPath) {
 		return fmt.Errorf("path must be relative, got absolute path %q", relPath)
 	}

@@ -45,6 +45,13 @@ ricket init /path/to/your/obsidian-vault
 
 This runs an interactive wizard that asks about your organisations, note categories, and inbox habits, then writes `ricket.yaml` and offers to set the vault as your default.
 
+`ricket init` now also scaffolds your vault structure on first run:
+- Creates vault folders (`Inbox/`, `Archive/`, `_templates/` by default)
+- Creates each configured category folder
+- Creates missing category templates in `_templates/`
+- Creates missing category MOC files
+- Optionally writes `.vscode/mcp.json` in the selected vault for GitHub Copilot
+
 ### 2. Verify
 
 ```bash
@@ -129,7 +136,15 @@ If you've set a default vault via `ricket config set-default`, you can omit the 
 
 ## Adding to GitHub Copilot (VS Code)
 
-Create or edit `.vscode/mcp.json` in your project:
+Recommended: generate it automatically:
+
+```bash
+ricket mcp init-vscode /path/to/your/code-workspace --vault-root /path/to/vault
+```
+
+This writes `.vscode/mcp.json` with an absolute `command` path, which avoids common VS Code errors like `spawn ricket ENOENT` when `ricket` is not on PATH in the extension host process.
+
+Manual config (if needed):
 
 ```json
 {
@@ -146,6 +161,11 @@ Create or edit `.vscode/mcp.json` in your project:
 }
 ```
 
+If you see `spawn ricket ENOENT`:
+- Run `ricket mcp init-vscode ...` so the config uses an absolute command path.
+- Or replace `"command": "ricket"` with the full path to your binary (for example, `"C:/Users/alice/go/bin/ricket.exe"` on Windows).
+- Verify the binary exists with `ricket --version` in your terminal.
+
 ---
 
 ## MCP tools reference
@@ -153,6 +173,7 @@ Create or edit `.vscode/mcp.json` in your project:
 | Tool | Description |
 |------|-------------|
 | `vault_list_inbox` | List all notes in Inbox — path, name, 200-char preview |
+| `vault_triage_inbox` | Analyze Inbox notes and propose filing actions (category, destination, confidence, signals); does not mutate files |
 | `vault_read_note` | Read a note by path — frontmatter, content, tags, wikilinks |
 | `vault_search` | Search by folder, tags (AND), and/or full-text query |
 | `vault_get_categories` | Return all configured categories with signals |
@@ -201,6 +222,29 @@ At least one of `content`, `tags`, or `links` must be provided. Tags are additiv
 ```
 
 Returns `{ destination, gitCommitMessage, gitCommitted }`. If the vault is a git repository, ricket auto-commits the change.
+
+### `vault_triage_inbox` workflow
+
+`vault_triage_inbox` is the triage planning tool. It returns:
+- `proposals`: deterministic suggestions for filing Inbox notes
+- `unresolved`: notes with low confidence or no category signal match
+
+Each proposal includes `needsApproval: true`, so your MCP client/agent should ask for user approval before executing the suggested moves with `vault_file_note`.
+
+---
+
+## Shell completion
+
+Generate completion scripts:
+
+```bash
+ricket completion bash
+ricket completion zsh
+ricket completion fish
+ricket completion powershell
+```
+
+`ricket completion` only outputs shell completion scripts for the CLI itself; it does not configure MCP clients.
 
 ---
 
@@ -298,6 +342,6 @@ internal/
   git/               Git audit trail
   mcp/               MCP server (mark3labs/mcp-go)
     server.go        Server init and stdio serve
-    tools.go         All 9 tool definitions and handlers
+    tools.go         MCP tool definitions and handlers
 testdata/vault/      Realistic test vault fixture
 ```

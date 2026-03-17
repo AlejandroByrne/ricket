@@ -23,7 +23,7 @@ func New(vaultRoot string) *RicketMCPServer {
 	return &RicketMCPServer{vaultRoot: vaultRoot}
 }
 
-// Start loads config, initialises the vault, registers all 9 tools, then
+// Start loads config, initialises the vault, registers tools, then
 // serves over stdio until the process is signalled.
 func (s *RicketMCPServer) Start() error {
 	cfg, err := config.LoadConfig(s.vaultRoot)
