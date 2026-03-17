@@ -812,8 +812,113 @@ func configCmd() *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(setDefault, showPath, validate, scaffold)
+	migrate := &cobra.Command{
+		Use:   "migrate",
+		Short: "Migrate ricket.yaml to newer defaults",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			root, err := resolveRoot()
+			if err != nil {
+				return err
+			}
+
+			cfg, err := config.LoadConfig(root)
+			if err != nil {
+				return fmt.Errorf("config error: %w", err)
+			}
+
+			addPeople, _ := cmd.Flags().GetBool("add-people")
+			if !addPeople {
+				fmt.Println("No migrations selected. Use --add-people.")
+				return nil
+			}
+
+			added := ensurePeopleCategories(cfg)
+			if added == 0 {
+				fmt.Println("No people categories needed. ricket.yaml unchanged.")
+				return nil
+			}
+
+			if err := config.WriteConfig(cfg, root); err != nil {
+				return err
+			}
+			fmt.Printf("Added %d people categories to ricket.yaml.\n", added)
+			return nil
+		},
+	}
+	migrate.Flags().Bool("add-people", false, "Add missing per-organization people categories")
+
+	cmd.AddCommand(setDefault, showPath, validate, scaffold, migrate)
 	return cmd
+}
+
+func ensurePeopleCategories(cfg *config.RicketConfig) int {
+	existingByName := map[string]bool{}
+	for _, c := range cfg.Categories {
+		existingByName[c.Name] = true
+	}
+
+	type orgInfo struct {
+		Tag  string
+		Area string
+	}
+	orgs := map[string]orgInfo{}
+
+	for _, c := range cfg.Categories {
+		tag := categoryTagPrefix(c.Name)
+		if tag == "" {
+			continue
+		}
+		if strings.HasSuffix(strings.ToLower(c.Name), "-people") {
+			continue
+		}
+		if area := inferAreaRoot(c.Folder); area != "" {
+			if _, ok := orgs[tag]; !ok {
+				orgs[tag] = orgInfo{Tag: tag, Area: area}
+			}
+		}
+	}
+
+	added := 0
+	for _, org := range orgs {
+		name := org.Tag + "-people"
+		if existingByName[name] {
+			continue
+		}
+		cfg.Categories = append(cfg.Categories, config.Category{
+			Name:     name,
+			Folder:   org.Area + "people/",
+			Template: "person",
+			Naming:   "{topic}.md",
+			Tags:     []string{"person", org.Tag},
+			MOC:      org.Area + "people/MOC.md",
+			Signals:  []string{"person", "people", "stakeholder", "owner", "contact", "manager", "teammate"},
+		})
+		added++
+	}
+
+	return added
+}
+
+func categoryTagPrefix(name string) string {
+	name = strings.TrimSpace(strings.ToLower(name))
+	suffixes := []string{"-decision", "-concept", "-meeting", "-project", "-people"}
+	for _, s := range suffixes {
+		if strings.HasSuffix(name, s) {
+			return strings.TrimSuffix(name, s)
+		}
+	}
+	return ""
+}
+
+func inferAreaRoot(folder string) string {
+	f := filepath.ToSlash(strings.TrimSpace(folder))
+	if strings.HasPrefix(f, "Areas/") {
+		parts := strings.Split(f, "/")
+		if len(parts) >= 2 && parts[1] != "" {
+			return "Areas/" + parts[1] + "/"
+		}
+	}
+	return ""
 }
 
 func mcpCmd() *cobra.Command {

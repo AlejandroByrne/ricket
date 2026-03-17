@@ -312,6 +312,33 @@ func TestCLI_ConfigScaffold(t *testing.T) {
 	}
 }
 
+func TestCLI_ConfigMigrateAddPeople(t *testing.T) {
+	vaultDir := t.TempDir()
+	if err := copyDirAll(testVaultPath(t), vaultDir); err != nil {
+		t.Fatalf("copy vault: %v", err)
+	}
+
+	stdout, stderr, code := runRicket(t, nil, "config", "migrate", "--add-people", "--vault-root", vaultDir)
+	if code != 0 {
+		t.Fatalf("config migrate exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "Added") {
+		t.Fatalf("expected migrate output to confirm additions, got: %s", stdout)
+	}
+
+	data, err := os.ReadFile(filepath.Join(vaultDir, "ricket.yaml"))
+	if err != nil {
+		t.Fatalf("read migrated ricket.yaml: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "name: acme-people") {
+		t.Fatalf("expected acme-people category in migrated config, got:\n%s", text)
+	}
+	if !strings.Contains(text, "template: person") {
+		t.Fatalf("expected person template in migrated config, got:\n%s", text)
+	}
+}
+
 // ── MCP JSON-RPC E2E test ─────────────────────────────────────────────────────
 
 // copyDirAll recursively copies src to dst (dst must already be a temp dir).
