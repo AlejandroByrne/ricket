@@ -83,7 +83,7 @@ func toolGetTemplates() mcplib.Tool {
 
 func toolFileNote() mcplib.Tool {
 	t := mcplib.NewTool("vault_file_note",
-		mcplib.WithDescription("Move a note from source to destination, optionally applying a template, tags, links, and a MOC update. Returns the new path and a suggested git commit message."),
+		mcplib.WithDescription("Move a note from source to destination, optionally applying a template, tags, links, and a MOC update. Use source_action to decide what happens to the original inbox note. Returns the new path and a suggested git commit message."),
 		mcplib.WithString("source",
 			mcplib.Required(),
 			mcplib.Description("Relative path of the source note (typically in Inbox/)"),
@@ -100,6 +100,9 @@ func toolFileNote() mcplib.Tool {
 		),
 		mcplib.WithString("moc",
 			mcplib.Description("Relative path of a MOC file to update with a link to this note (optional)"),
+		),
+		mcplib.WithString("source_action",
+			mcplib.Description("What to do with the source note after filing: 'delete' (default), 'archive', or 'keep'"),
 		),
 	)
 	t.InputSchema.Properties["tags"] = map[string]any{
@@ -343,6 +346,7 @@ func handleVaultFileNote(s *RicketMCPServer) mcpserver.ToolHandlerFunc {
 			MOC:         req.GetString("moc", ""),
 			Tags:        req.GetStringSlice("tags", nil),
 			Links:       req.GetStringSlice("links", nil),
+			SourceAction: req.GetString("source_action", ""),
 		}
 
 		fileResult, err := s.vault.FileNote(opts)

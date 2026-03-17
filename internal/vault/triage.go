@@ -109,6 +109,15 @@ func classifyNote(note VaultNote, categories []config.Category) (*config.Categor
 					matches = append(matches, sig)
 					seen[sig] = true
 				}
+				continue
+			}
+
+			if containsAllTokens(text, sig) {
+				score++
+				if !seen[sig] {
+					matches = append(matches, sig)
+					seen[sig] = true
+				}
 			}
 		}
 
@@ -118,6 +127,17 @@ func classifyNote(note VaultNote, categories []config.Category) (*config.Categor
 				if !seen[t] {
 					matches = append(matches, t)
 					seen[t] = true
+				}
+			}
+		}
+
+		if isResourceCategory(c) {
+			boost, extra := resourceSignalBoost(text)
+			score += boost
+			for _, m := range extra {
+				if !seen[m] {
+					matches = append(matches, m)
+					seen[m] = true
 				}
 			}
 		}
@@ -136,7 +156,7 @@ func classifyNote(note VaultNote, categories []config.Category) (*config.Categor
 }
 
 func (v *Vault) suggestDestination(cat config.Category, note VaultNote) string {
-	topic := slugifyTopic(note.Name)
+	topic := inferTopic(note)
 	filename := cat.Naming
 	if filename == "" {
 		filename = "{topic}.md"
@@ -218,4 +238,89 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func containsAllTokens(text, signal string) bool {
+	tokens := strings.Fields(strings.ToLower(signal))
+	if len(tokens) <= 1 {
+		return false
+	}
+	for _, t := range tokens {
+		if !strings.Contains(text, t) {
+			return false
+		}
+	}
+	return true
+}
+
+func isResourceCategory(c config.Category) bool {
+	name := strings.ToLower(c.Name)
+	if strings.Contains(name, "resource") {
+		return true
+	}
+	for _, t := range c.Tags {
+		if strings.EqualFold(strings.TrimSpace(t), "resource") {
+			return true
+		}
+	}
+	return false
+}
+
+func resourceSignalBoost(text string) (int, []string) {
+	keywords := []string{"endpoint", "endpoints", "server", "domain", "url", "hostname", "port", "prod", "non-prod", "environment"}
+	matches := make([]string, 0)
+	for _, k := range keywords {
+		if strings.Contains(text, k) {
+			matches = append(matches, k)
+		}
+	}
+	if len(matches) >= 3 {
+		return 3, matches
+	}
+	if len(matches) == 2 {
+		return 2, matches
+	}
+	return 0, matches
+}
+
+func inferTopic(note VaultNote) string {
+	name := strings.TrimSpace(note.Name)
+	nameSlug := slugifyTopic(name)
+	if nameSlug != "" && nameSlug != "note" && !isGenericTopic(nameSlug) {
+		return nameSlug
+	}
+
+	text := strings.ToLower(note.Parsed.Content)
+	if strings.Contains(text, "pmpro") && (strings.Contains(text, "endpoint") || strings.Contains(text, "server") || strings.Contains(text, "domain")) {
+		return "pmpro-server-endpoints"
+	}
+
+	for _, line := range strings.Split(note.Parsed.Content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			line = strings.TrimSpace(strings.TrimLeft(line, "#"))
+		}
+		slug := slugifyTopic(line)
+		if slug != "" && slug != "note" && !isGenericTopic(slug) {
+			return slug
+		}
+	}
+
+	return "inbox-note"
+}
+
+func isGenericTopic(slug string) bool {
+	generic := map[string]bool{
+		"update":             true,
+		"update-from-richard": true,
+		"from-richard":       true,
+		"note":               true,
+		"notes":              true,
+		"capture":            true,
+		"raw-capture":        true,
+	}
+	return generic[slug]
 }

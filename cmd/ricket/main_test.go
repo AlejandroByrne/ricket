@@ -215,8 +215,10 @@ func TestCLI_Init_ScaffoldsVault(t *testing.T) {
 		"_templates/meeting.md",
 		"_templates/project.md",
 		"_templates/learning.md",
+		"_templates/person.md",
 		"Areas/Org1/decisions/MOC.md",
 		"Areas/Org1/concepts/MOC.md",
+		"Areas/Org1/people/MOC.md",
 		"Projects/Org1/MOC.md",
 		"Areas/Personal Development/MOC.md",
 	} {

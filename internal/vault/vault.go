@@ -31,6 +31,7 @@ type FileNoteOptions struct {
 	Links       []string // wikilinks to add to ## Links section
 	MOC         string   // MOC file to update (relative path)
 	Template    string   // template name (without .md)
+	SourceAction string   // what to do with source note after filing: delete (default), archive, keep
 }
 
 // FileNoteResult is returned by FileNote.
@@ -376,6 +377,12 @@ func (v *Vault) FileNote(opts FileNoteOptions) (FileNoteResult, error) {
 	if err := v.validatePath(opts.Destination); err != nil {
 		return FileNoteResult{}, fmt.Errorf("invalid destination: %w", err)
 	}
+	if filepath.Clean(filepath.FromSlash(opts.Source)) == filepath.Clean(filepath.FromSlash(opts.Destination)) {
+		return FileNoteResult{}, fmt.Errorf("source and destination must be different")
+	}
+	if filepath.Dir(filepath.FromSlash(opts.Destination)) == "." {
+		return FileNoteResult{}, fmt.Errorf("destination must be inside a folder (root destinations are not allowed): %s", opts.Destination)
+	}
 
 	sourceAbs := filepath.Join(v.cfg.VaultRoot, filepath.FromSlash(opts.Source))
 	destAbs := filepath.Join(v.cfg.VaultRoot, filepath.FromSlash(opts.Destination))
@@ -415,6 +422,10 @@ func (v *Vault) FileNote(opts FileNoteOptions) (FileNoteResult, error) {
 		updated = ParseNote(SerializeNote(updated.Frontmatter, updated.Content))
 	}
 
+	if strings.TrimSpace(updated.Content) == "" {
+		return FileNoteResult{}, fmt.Errorf("refusing to create empty destination note for %s", opts.Destination)
+	}
+
 	if err := os.MkdirAll(filepath.Dir(destAbs), 0o755); err != nil {
 		return FileNoteResult{}, fmt.Errorf("failed to create destination dir: %w", err)
 	}
@@ -431,8 +442,8 @@ func (v *Vault) FileNote(opts FileNoteOptions) (FileNoteResult, error) {
 		}
 	}
 
-	if err := os.Remove(sourceAbs); err != nil {
-		return FileNoteResult{}, fmt.Errorf("failed to delete source %s: %w", opts.Source, err)
+	if err := v.applySourceAction(opts, sourceAbs); err != nil {
+		return FileNoteResult{}, err
 	}
 
 	v.markDirty()
@@ -450,6 +461,43 @@ func (v *Vault) FileNote(opts FileNoteOptions) (FileNoteResult, error) {
 		GitCommitMessage: commitMsg,
 		GitCommitted:     committed,
 	}, nil
+}
+
+func (v *Vault) applySourceAction(opts FileNoteOptions, sourceAbs string) error {
+	action := strings.ToLower(strings.TrimSpace(opts.SourceAction))
+	if action == "" {
+		action = "delete"
+	}
+
+	switch action {
+	case "delete":
+		if err := os.Remove(sourceAbs); err != nil {
+			return fmt.Errorf("failed to delete source %s: %w", opts.Source, err)
+		}
+		return nil
+	case "keep":
+		return nil
+	case "archive":
+		archiveFolder := filepath.Join(v.cfg.VaultRoot, filepath.FromSlash(v.cfg.Vault.Archive))
+		if err := os.MkdirAll(archiveFolder, 0o755); err != nil {
+			return fmt.Errorf("failed to create archive folder: %w", err)
+		}
+
+		base := filepath.Base(filepath.FromSlash(opts.Source))
+		destination := filepath.Join(archiveFolder, base)
+		if _, err := os.Stat(destination); err == nil {
+			ext := filepath.Ext(base)
+			name := strings.TrimSuffix(base, ext)
+			destination = filepath.Join(archiveFolder, fmt.Sprintf("%s-%s%s", name, time.Now().Format("20060102-150405"), ext))
+		}
+
+		if err := os.Rename(sourceAbs, destination); err != nil {
+			return fmt.Errorf("failed to archive source %s: %w", opts.Source, err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("invalid source_action %q (expected delete, archive, or keep)", opts.SourceAction)
+	}
 }
 
 // CreateNote creates a new note at destination with optional tags, links, and MOC update.

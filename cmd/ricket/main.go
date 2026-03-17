@@ -176,6 +176,7 @@ func runWizard(defaultRoot string) error {
 	wantConcepts := false
 	wantMeetings := false
 	wantProjects := false
+	wantPeople := false
 	wantLearning := false
 	wantResources := false
 	wantJournal := false
@@ -190,6 +191,8 @@ func runWizard(defaultRoot string) error {
 				fmt.Sprintf("  Include meeting notes for %s?", o.Name), true)
 			wantProjects = wantProjects || promptBool(reader,
 				fmt.Sprintf("  Include project notes for %s?", o.Name), true)
+			wantPeople = wantPeople || promptBool(reader,
+				fmt.Sprintf("  Include people/stakeholder notes for %s?", o.Name), true)
 		}
 	}
 	wantLearning = promptBool(reader, "  Include personal learning notes?", true)
@@ -216,6 +219,7 @@ func runWizard(defaultRoot string) error {
 		WantConcepts:    wantConcepts,
 		WantMeetings:    wantMeetings,
 		WantProjects:    wantProjects,
+		WantPeople:      wantPeople,
 		WantLearning:    wantLearning,
 		WantResources:   wantResources,
 		WantJournal:     wantJournal,
@@ -319,6 +323,8 @@ func defaultTemplateContent(name string) string {
 		return "---\ntitle: <% tp.file.title %>\ndate: <% tp.date.now(\"YYYY-MM-DD\") %>\ntags: [project]\nstatus: active\n---\n\n# <% tp.file.title %>\n\n## Goal\n\n## Scope\n\n## Progress\n\n## Decisions\n\n## Links\n"
 	case "learning":
 		return "---\ntitle: <% tp.file.title %>\ndate: <% tp.date.now(\"YYYY-MM-DD\") %>\ntags: [learning]\n---\n\n# <% tp.file.title %>\n\n## Summary\n\n## Key Concepts\n\n## How I'll Use This\n\n## Links\n"
+	case "person":
+		return "---\ntitle: <% tp.file.title %>\ndate: <% tp.date.now(\"YYYY-MM-DD\") %>\ntags: [person]\nrole: \"\"\nteam: \"\"\n---\n\n# <% tp.file.title %>\n\n## Who They Are\n\n## Context\n\n## Current Work\n\n## Notes\n\n## Links\n"
 	default:
 		return "---\ntitle: <% tp.file.title %>\ndate: <% tp.date.now(\"YYYY-MM-DD\") %>\n---\n\n# <% tp.file.title %>\n\n## Notes\n"
 	}
@@ -391,6 +397,7 @@ type wizardAnswers struct {
 	WantConcepts    bool
 	WantMeetings    bool
 	WantProjects    bool
+	WantPeople      bool
 	WantLearning    bool
 	WantResources   bool
 	WantJournal     bool
@@ -462,6 +469,18 @@ func buildConfigFromWizard(a wizardAnswers) *config.RicketConfig {
 				Signals:  []string{"project", "task", "feature", "initiative", "epic", "ticket"},
 			})
 		}
+
+		if a.WantPeople {
+			cfg.Categories = append(cfg.Categories, config.Category{
+				Name:     org.Tag + "-people",
+				Folder:   orgArea + "people/",
+				Template: "person",
+				Naming:   "{topic}.md",
+				Tags:     []string{"person", org.Tag},
+				MOC:      orgArea + "people/MOC.md",
+				Signals:  []string{"person", "people", "stakeholder", "owner", "contact", "manager", "teammate"},
+			})
+		}
 	}
 
 	if a.WantLearning {
@@ -482,7 +501,7 @@ func buildConfigFromWizard(a wizardAnswers) *config.RicketConfig {
 			Folder:  "Resources/",
 			Naming:  "{topic}.md",
 			Tags:    []string{"resource"},
-			Signals: []string{"reference", "resource", "link", "doc", "documentation"},
+			Signals: []string{"reference", "resource", "link", "doc", "documentation", "endpoint", "endpoints", "server", "domain", "url", "hostname", "port", "prod", "non-prod", "environment"},
 		})
 	}
 

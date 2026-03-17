@@ -204,6 +204,47 @@ func TestFileNote(t *testing.T) {
 			t.Fatal("expected error for missing source")
 		}
 	})
+
+	t.Run("source_action_keep", func(t *testing.T) {
+		writeNote(t, dir, "Inbox/keep-source.md", "# Keep\n\nKeep the original.")
+		_, err := v.FileNote(vault.FileNoteOptions{
+			Source:       "Inbox/keep-source.md",
+			Destination:  "Notes/keep-source-filed.md",
+			SourceAction: "keep",
+		})
+		if err != nil {
+			t.Fatalf("FileNote keep source: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "Inbox", "keep-source.md")); err != nil {
+			t.Errorf("expected source note to remain after keep action: %v", err)
+		}
+	})
+
+	t.Run("source_action_archive", func(t *testing.T) {
+		writeNote(t, dir, "Inbox/archive-source.md", "# Archive\n\nArchive the original.")
+		_, err := v.FileNote(vault.FileNoteOptions{
+			Source:       "Inbox/archive-source.md",
+			Destination:  "Notes/archive-source-filed.md",
+			SourceAction: "archive",
+		})
+		if err != nil {
+			t.Fatalf("FileNote archive source: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "Archive", "archive-source.md")); err != nil {
+			t.Errorf("expected archived source note: %v", err)
+		}
+	})
+
+	t.Run("reject_root_destination", func(t *testing.T) {
+		writeNote(t, dir, "Inbox/root-dest.md", "# Root\n\nShould fail.")
+		_, err := v.FileNote(vault.FileNoteOptions{
+			Source:      "Inbox/root-dest.md",
+			Destination: "root-dest.md",
+		})
+		if err == nil {
+			t.Fatal("expected error for root destination")
+		}
+	})
 }
 
 func TestListInbox(t *testing.T) {
