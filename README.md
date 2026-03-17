@@ -151,6 +151,7 @@ Create or edit `.vscode/mcp.json` in your project:
 | `vault_get_templates` | Return all templates with their section headings |
 | `vault_file_note` | Move a note from Inbox to destination, apply template/tags/links/MOC |
 | `vault_create_note` | Create a new note with optional tags, links, and MOC update |
+| `vault_update_note` | Update an existing note's content, tags, and/or links in-place |
 | `vault_status` | Inbox count, total notes, category count |
 
 ### `vault_search` parameters
@@ -276,6 +277,6 @@ internal/
   git/               Git audit trail
   mcp/               MCP server (mark3labs/mcp-go)
     server.go        Server init and stdio serve
-    tools.go         All 8 tool definitions and handlers
+    tools.go         All 9 tool definitions and handlers
 testdata/vault/      Realistic test vault fixture
 ```

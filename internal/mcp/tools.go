@@ -13,7 +13,7 @@ import (
 	"github.com/AlejandroByrne/ricket/internal/vault"
 )
 
-// registerTools registers all 8 ricket MCP tools on srv.
+// registerTools registers all 9 ricket MCP tools on srv.
 func registerTools(srv *mcpserver.MCPServer, s *RicketMCPServer) {
 	srv.AddTool(toolListInbox(), handleVaultListInbox(s))
 	srv.AddTool(toolReadNote(), handleVaultReadNote(s))
@@ -22,6 +22,7 @@ func registerTools(srv *mcpserver.MCPServer, s *RicketMCPServer) {
 	srv.AddTool(toolGetTemplates(), handleVaultGetTemplates(s))
 	srv.AddTool(toolFileNote(), handleVaultFileNote(s))
 	srv.AddTool(toolCreateNote(), handleVaultCreateNote(s))
+	srv.AddTool(toolUpdateNote(), handleVaultUpdateNote(s))
 	srv.AddTool(toolStatus(), handleVaultStatus(s))
 }
 
@@ -126,6 +127,30 @@ func toolCreateNote() mcplib.Tool {
 		"type":        "array",
 		"items":       map[string]any{"type": "string"},
 		"description": "Tags to add to the note's frontmatter (optional)",
+	}
+	t.InputSchema.Properties["links"] = map[string]any{
+		"type":        "array",
+		"items":       map[string]any{"type": "string"},
+		"description": "Wikilinks to append to the ## Links section (optional)",
+	}
+	return t
+}
+
+func toolUpdateNote() mcplib.Tool {
+	t := mcplib.NewTool("vault_update_note",
+		mcplib.WithDescription("Update an existing note's content, tags, and/or links in-place. At least one of content, tags, or links must be provided."),
+		mcplib.WithString("path",
+			mcplib.Required(),
+			mcplib.Description("Relative path of the note to update within the vault"),
+		),
+		mcplib.WithString("content",
+			mcplib.Description("New body content to replace the existing note body (optional)"),
+		),
+	)
+	t.InputSchema.Properties["tags"] = map[string]any{
+		"type":        "array",
+		"items":       map[string]any{"type": "string"},
+		"description": "Tags to add to the note's frontmatter (additive, optional)",
 	}
 	t.InputSchema.Properties["links"] = map[string]any{
 		"type":        "array",
@@ -345,6 +370,37 @@ func handleVaultCreateNote(s *RicketMCPServer) mcpserver.ToolHandlerFunc {
 			Path string `json:"path"`
 		}
 		out, _ := json.MarshalIndent(result{Path: path}, "", "  ")
+		return mcplib.NewToolResultText(string(out)), nil
+	}
+}
+
+func handleVaultUpdateNote(s *RicketMCPServer) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		path, err := req.RequireString("path")
+		if err != nil {
+			return mcplib.NewToolResultError(err.Error()), nil
+		}
+
+		opts := vault.UpdateNoteOptions{
+			Path:    path,
+			Content: req.GetString("content", ""),
+			Tags:    req.GetStringSlice("tags", nil),
+			Links:   req.GetStringSlice("links", nil),
+		}
+
+		updateResult, err := s.vault.UpdateNote(opts)
+		if err != nil {
+			return mcplib.NewToolResultError(err.Error()), nil
+		}
+
+		type result struct {
+			Path         string `json:"path"`
+			GitCommitted bool   `json:"gitCommitted"`
+		}
+		out, _ := json.MarshalIndent(result{
+			Path:         updateResult.Path,
+			GitCommitted: updateResult.GitCommitted,
+		}, "", "  ")
 		return mcplib.NewToolResultText(string(out)), nil
 	}
 }

@@ -476,6 +476,127 @@ func TestHandler_FileNote_MissingRequiredArgs(t *testing.T) {
 	}
 }
 
+// ── vault_update_note ─────────────────────────────────────────────────────────
+
+func TestHandler_UpdateNote_Content(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := copyDirForTest(testdataPath(t), tmpDir); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadConfig(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &RicketMCPServer{vaultRoot: tmpDir, vault: vault.New(cfg), cfg: cfg}
+	t.Cleanup(func() { s.vault.Close() })
+
+	h := handleVaultUpdateNote(s)
+	resp, isErr := callHandler(t, h, map[string]any{
+		"path":    "Areas/Engineering/decisions/use-sqlite-for-index.md",
+		"content": "# Updated\n\nNew body content.",
+	})
+	if isErr {
+		t.Fatal("unexpected error result")
+	}
+	if resp["path"] != "Areas/Engineering/decisions/use-sqlite-for-index.md" {
+		t.Errorf("path = %q", resp["path"])
+	}
+	if _, exists := resp["gitCommitted"]; !exists {
+		t.Error("response missing gitCommitted field")
+	}
+
+	// Verify the note was actually updated
+	rh := handleVaultReadNote(s)
+	readResp, readErr := callHandler(t, rh, map[string]any{
+		"path": "Areas/Engineering/decisions/use-sqlite-for-index.md",
+	})
+	if readErr {
+		t.Fatal("read after update failed")
+	}
+	content, _ := readResp["content"].(string)
+	if !strings.Contains(content, "New body content.") {
+		t.Errorf("updated content not persisted, got: %q", content)
+	}
+}
+
+func TestHandler_UpdateNote_AddTags(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := copyDirForTest(testdataPath(t), tmpDir); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadConfig(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &RicketMCPServer{vaultRoot: tmpDir, vault: vault.New(cfg), cfg: cfg}
+	t.Cleanup(func() { s.vault.Close() })
+
+	h := handleVaultUpdateNote(s)
+	_, isErr := callHandler(t, h, map[string]any{
+		"path": "Areas/Engineering/decisions/use-sqlite-for-index.md",
+		"tags": []any{"reviewed", "pinned"},
+	})
+	if isErr {
+		t.Fatal("unexpected error result")
+	}
+
+	// Verify tags were added
+	rh := handleVaultReadNote(s)
+	readResp, _ := callHandler(t, rh, map[string]any{
+		"path": "Areas/Engineering/decisions/use-sqlite-for-index.md",
+	})
+	tags, _ := readResp["tags"].([]any)
+	hasReviewed := false
+	for _, tg := range tags {
+		if tg.(string) == "reviewed" {
+			hasReviewed = true
+		}
+	}
+	if !hasReviewed {
+		t.Errorf("'reviewed' tag not found after update, got: %v", tags)
+	}
+}
+
+func TestHandler_UpdateNote_MissingPath(t *testing.T) {
+	s := makeServer(t)
+	h := handleVaultUpdateNote(s)
+	if !isErrorResult(t, h, map[string]any{"content": "hi"}) {
+		t.Error("expected error when path missing")
+	}
+}
+
+func TestHandler_UpdateNote_NothingProvided(t *testing.T) {
+	s := makeServer(t)
+	h := handleVaultUpdateNote(s)
+	if !isErrorResult(t, h, map[string]any{
+		"path": "Areas/Engineering/decisions/use-sqlite-for-index.md",
+	}) {
+		t.Error("expected error when no content/tags/links provided")
+	}
+}
+
+func TestHandler_UpdateNote_MissingNote(t *testing.T) {
+	s := makeServer(t)
+	h := handleVaultUpdateNote(s)
+	if !isErrorResult(t, h, map[string]any{
+		"path":    "Inbox/does-not-exist.md",
+		"content": "new content",
+	}) {
+		t.Error("expected error for missing note")
+	}
+}
+
+func TestHandler_UpdateNote_TraversalPath(t *testing.T) {
+	s := makeServer(t)
+	h := handleVaultUpdateNote(s)
+	if !isErrorResult(t, h, map[string]any{
+		"path":    "../../etc/passwd",
+		"content": "bad",
+	}) {
+		t.Error("expected error for traversal path")
+	}
+}
+
 // ── vault_status ──────────────────────────────────────────────────────────────
 
 func TestHandler_Status(t *testing.T) {

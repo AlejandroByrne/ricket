@@ -496,6 +496,65 @@ func (v *Vault) CreateNote(destination, content string, tags, links []string, mo
 	return nil
 }
 
+// UpdateNoteOptions controls how UpdateNote modifies an existing note.
+type UpdateNoteOptions struct {
+	Path    string   // relative path of the note to update (required)
+	Content string   // if non-empty, replaces the existing note body
+	Tags    []string // tags to add to frontmatter (additive)
+	Links   []string // wikilinks to append to the ## Links section
+}
+
+// UpdateNoteResult is returned by UpdateNote.
+type UpdateNoteResult struct {
+	Path         string
+	GitCommitted bool
+}
+
+// UpdateNote modifies an existing note's content, tags, and/or links in-place.
+// At least one of Content, Tags, or Links must be non-empty.
+func (v *Vault) UpdateNote(opts UpdateNoteOptions) (UpdateNoteResult, error) {
+	if err := v.validatePath(opts.Path); err != nil {
+		return UpdateNoteResult{}, fmt.Errorf("invalid path: %w", err)
+	}
+	if opts.Content == "" && len(opts.Tags) == 0 && len(opts.Links) == 0 {
+		return UpdateNoteResult{}, fmt.Errorf("at least one of content, tags, or links must be provided")
+	}
+
+	note, err := v.ReadNote(opts.Path)
+	if err != nil {
+		return UpdateNoteResult{}, err
+	}
+
+	updated := note.Parsed
+
+	if opts.Content != "" {
+		updated.Content = opts.Content
+	}
+	if len(opts.Tags) > 0 {
+		updated = AddFrontmatterTags(updated, opts.Tags)
+	}
+	if len(opts.Links) > 0 {
+		updated.Content = addLinksToContent(updated.Content, opts.Links)
+		updated = ParseNote(SerializeNote(updated.Frontmatter, updated.Content))
+	}
+
+	absPath := filepath.Join(v.cfg.VaultRoot, filepath.FromSlash(opts.Path))
+	serialized := SerializeNote(updated.Frontmatter, updated.Content)
+	if err := os.WriteFile(absPath, []byte(serialized), 0o644); err != nil {
+		return UpdateNoteResult{}, fmt.Errorf("failed to write %s: %w", opts.Path, err)
+	}
+
+	v.markDirty()
+
+	committed := false
+	if v.ga != nil {
+		msg := fmt.Sprintf("ricket: updated %s", opts.Path)
+		committed = v.ga.Commit([]string{opts.Path}, msg)
+	}
+
+	return UpdateNoteResult{Path: opts.Path, GitCommitted: committed}, nil
+}
+
 // UpdateMOC updates a MOC file by appending a link.
 func (v *Vault) UpdateMOC(mocPath, noteTitle, notePath string) error {
 	if err := v.validatePath(mocPath); err != nil {

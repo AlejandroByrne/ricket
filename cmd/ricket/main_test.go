@@ -160,10 +160,47 @@ func TestCLI_Init_ExistingConfig(t *testing.T) {
 
 // ── MCP JSON-RPC E2E test ─────────────────────────────────────────────────────
 
+// copyDirAll recursively copies src to dst (dst must already be a temp dir).
+func copyDirAll(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, info.Mode())
+		}
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		out, err := os.Create(target)
+		if err != nil {
+			return err
+		}
+		defer out.Close()
+		_, err = io.Copy(out, in)
+		return err
+	})
+}
+
 // TestMCP_E2E spawns `ricket serve` as a subprocess and drives it over
 // stdin/stdout using the MCP JSON-RPC 2.0 protocol.
 func TestMCP_E2E(t *testing.T) {
-	vault := testVaultPath(t)
+	// Use a temp copy of the vault so mutation calls don't modify the fixture.
+	tmpVault := t.TempDir()
+	if err := copyDirAll(testVaultPath(t), tmpVault); err != nil {
+		t.Fatalf("copy vault: %v", err)
+	}
+	vault := tmpVault
 
 	cmd := exec.Command(binaryPath, "serve", "--vault-root", vault)
 	cmd.Env = os.Environ() // inherit env
@@ -270,8 +307,8 @@ func TestMCP_E2E(t *testing.T) {
 	if !ok {
 		t.Fatalf("tools/list result.tools: %T", listResult["tools"])
 	}
-	if len(tools) != 8 {
-		t.Errorf("expected 8 tools, got %d", len(tools))
+	if len(tools) != 9 {
+		t.Errorf("expected 9 tools, got %d", len(tools))
 	}
 	toolNames := make([]string, 0, len(tools))
 	for _, raw := range tools {
@@ -281,7 +318,7 @@ func TestMCP_E2E(t *testing.T) {
 	for _, want := range []string{
 		"vault_list_inbox", "vault_read_note", "vault_search",
 		"vault_get_categories", "vault_get_templates",
-		"vault_file_note", "vault_create_note", "vault_status",
+		"vault_file_note", "vault_create_note", "vault_update_note", "vault_status",
 	} {
 		found := false
 		for _, n := range toolNames {
@@ -356,10 +393,43 @@ func TestMCP_E2E(t *testing.T) {
 		t.Errorf("inbox items = %d, want 3", len(inboxItems))
 	}
 
-	// ── 6. tools/call vault_read_note ────────────────────────────────────
+	// ── 6. tools/call vault_update_note (adds a tag to an existing note) ──
+	// Note: testdata/vault is read-only fixture; this call will succeed at the
+	// MCP protocol level even though gitCommitted may be false (no git repo in temp copy).
 	send(map[string]any{
 		"jsonrpc": "2.0",
 		"id":      5,
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name": "vault_update_note",
+			"arguments": map[string]any{
+				"path": "Areas/Engineering/decisions/use-sqlite-for-index.md",
+				"tags": []any{"reviewed"},
+			},
+		},
+	})
+	updateResp := readResponse()
+	if updateResp["error"] != nil {
+		t.Fatalf("vault_update_note call error: %v", updateResp["error"])
+	}
+	updateCallResult, _ := updateResp["result"].(map[string]any)
+	updateContent, _ := updateCallResult["content"].([]any)
+	if len(updateContent) == 0 {
+		t.Fatal("vault_update_note returned empty content")
+	}
+	updateText, _ := updateContent[0].(map[string]any)["text"].(string)
+	var updateData map[string]any
+	if err := json.Unmarshal([]byte(updateText), &updateData); err != nil {
+		t.Fatalf("unmarshal update response: %v", err)
+	}
+	if updateData["path"] != "Areas/Engineering/decisions/use-sqlite-for-index.md" {
+		t.Errorf("update path = %q", updateData["path"])
+	}
+
+	// ── 7. tools/call vault_read_note ────────────────────────────────────
+	send(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      6,
 		"method":  "tools/call",
 		"params": map[string]any{
 			"name": "vault_read_note",
