@@ -33,7 +33,7 @@ func main() {
 	root := &cobra.Command{
 		Use:     "ricket",
 		Short:   "Vault-powered context engine for AI coding agents",
-		Version: "0.2.0",
+		Version: "0.3.0",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printBanner(os.Stdout)
 			return cmd.Usage()

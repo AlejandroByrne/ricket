@@ -17,6 +17,7 @@ Ricket bridges your [Obsidian](https://obsidian.md) vault and your AI coding ass
 
 1. **Triage** — take raw inbox notes, voice transcripts, meeting dumps and file them into the right place with the right template, tags, links, and MOC entry.
 2. **Context** — expose your vault's decisions, standards, concepts, and project history as structured context via MCP so your agent always knows your stack.
+3. **Analysis** — detect your PKM system (PARA, Zettelkasten, LYT/ACCESS, GTD, Johnny.Decimal, and more), map frontmatter schemas, link topology, and tag taxonomy so your agent understands *how* your vault is organized.
 
 Ricket makes **zero LLM API calls**. It is pure plumbing — the tool the LLM calls, not the other way around.
 
@@ -140,7 +141,7 @@ ricket config validate --vault-root /path/to/vault
 
 | Tool | Description |
 |------|-------------|
-| `vault_analyze` | Inspect vault structure — folder tree, tag frequency, naming patterns, templates, MOC files, and inferred categories with confidence scores. Safe to call on any directory. |
+| `vault_analyze` | Inspect vault structure — folder tree, tag frequency, naming patterns, templates, MOC files, inferred categories with confidence scores, PKM system detection, frontmatter schema, link topology, and tag taxonomy. Safe to call on any directory. |
 | `vault_write_config` | Write `ricket.yaml` and `VAULT_GUIDE.md` to vault root. Accepts raw YAML config and guide markdown. Pass `scaffold: true` to also create missing folders and template stubs. |
 
 ### Triage and filing tools (available after `ricket.yaml` exists)
@@ -255,7 +256,7 @@ categories:
 
 mcp:
   name: ricket      # name shown in MCP client
-  version: 0.2.0
+  version: 0.3.0
   needsApproval: true # set false to skip triage approval prompts
 ```
 
@@ -320,7 +321,9 @@ cmd/ricket/          CLI (init, serve, status, config)
 internal/
   config/            ricket.yaml load/write
   vault/             core vault operations
-    analyze.go       VaultAnalysis — folder tree, tags, patterns, inferred categories
+    analyze.go       VaultAnalysis — single-pass walk, folder tree, tags, patterns, inferred categories
+    pkm.go           PKM system detection (PARA, LYT, ACE, Zettelkasten, JD, GTD, BASB, Evergreen)
+    notedata.go      Shared noteData struct for single-pass parsing
     scaffold.go      ScaffoldVault — create missing folders, templates, MOC files
     frontmatter.go   YAML frontmatter parse/serialize
     template.go      Templater placeholder substitution
@@ -329,7 +332,7 @@ internal/
     vault.go         Vault struct — all operations
   git/               Git audit trail
   mcp/               MCP server (mark3labs/mcp-go)
-    server.go        Server init; migration mode when ricket.yaml absent
-    tools.go         MCP tool definitions and handlers
+    server.go        Server init; migration mode; WithInstructions (VAULT_GUIDE.md)
+    tools.go         MCP tool definitions, handlers, ReadOnlyHint annotations, setup-vault prompt
 testdata/vault/      Realistic test vault fixture
 ```

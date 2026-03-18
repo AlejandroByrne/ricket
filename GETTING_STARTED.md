@@ -20,7 +20,7 @@ Verify installation:
 
 ```bash
 ricket --version
-# Output: ricket version 0.2.0
+# Output: ricket version 0.3.0
 ```
 
 If the `ricket` command is not found, ensure `$(go env GOPATH)/bin` is on your `PATH`:
@@ -114,7 +114,14 @@ Open Claude Code from inside your vault directory. The `~/.claude/mcp.json` entr
 
 ## Step 5: Agent-driven setup
 
-The agent calls `vault_analyze`, which inspects your vault and returns a full picture of its structure: folder tree, tag frequency, naming patterns, detected templates, and inferred categories with confidence scores.
+The agent calls `vault_analyze`, which performs a single-pass scan of your vault and returns:
+- **Folder tree** with note counts and sample filenames
+- **Tag frequency** and **tag taxonomy** (nested prefixes, @context tags)
+- **Naming patterns** with type classification (zettelkasten-uid, johnny-decimal, date-topic, etc.)
+- **Link analysis** — wikilink density, hub notes, MOC-like notes, orphan count
+- **Frontmatter schema** — key frequency and notable key combinations (LYT, Zettelkasten, BASB signals)
+- **PKM system detection** — identifies your methodology (PARA, LYT/ACCESS, ACE, Zettelkasten, Johnny.Decimal, GTD, BASB, Evergreen) with confidence scores and evidence, including hybrid detection
+- **Inferred categories** with confidence boosted by PKM system alignment
 
 **For an existing Obsidian vault**, the agent proposes a `ricket.yaml` that maps your actual folders, tags, and templates into ricket categories — no data is moved or renamed. It also drafts a `VAULT_GUIDE.md` that teaches future agent sessions how your vault is organized.
 

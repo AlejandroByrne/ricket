@@ -43,7 +43,7 @@ func (s *RicketMCPServer) Start() error {
 	defer s.vault.Close() //nolint:errcheck — best-effort on shutdown
 
 	name := "ricket"
-	version := "0.2.0"
+	version := "0.3.0"
 	if cfg.MCP != nil {
 		if cfg.MCP.Name != "" {
 			name = cfg.MCP.Name
@@ -74,7 +74,7 @@ func (s *RicketMCPServer) startMigrationMode() error {
 		opts = append(opts, mcpserver.WithInstructions(guide))
 	}
 
-	srv := mcpserver.NewMCPServer("ricket", "0.2.0", opts...)
+	srv := mcpserver.NewMCPServer("ricket", "0.3.0", opts...)
 	registerMigrationTools(srv, s)
 	return mcpserver.ServeStdio(srv)
 }

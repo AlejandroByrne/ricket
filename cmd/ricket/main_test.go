@@ -162,8 +162,8 @@ func TestCLI_Version(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("--version exited %d", code)
 	}
-	if !strings.Contains(stdout, "0.2.0") {
-		t.Errorf("expected version 0.2.0 in output: %s", stdout)
+	if !strings.Contains(stdout, "0.3.0") {
+		t.Errorf("expected version 0.3.0 in output: %s", stdout)
 	}
 }
 
