@@ -447,3 +447,132 @@ func TestSearchNotes(t *testing.T) {
 		}
 	})
 }
+
+// ── Source operations ─────────────────────────────────────────────────────────
+
+func makeTestVaultWithSource(t *testing.T) (string, *config.RicketConfig) {
+	t.Helper()
+	dir, cfg := makeTestVault(t)
+
+	// Create a source directory with notes
+	srcDir := filepath.Join(dir, "_sources", "standards")
+	if err := os.MkdirAll(filepath.Join(srcDir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeNote(t, srcDir, "api-naming.md", "---\ntitle: API Naming\ntags: [standard]\n---\n# API Naming\nUse kebab-case for URLs.")
+	writeNote(t, srcDir, "sub/logging.md", "---\ntitle: Logging Standards\ntags: [logging]\n---\n# Logging\nUse structured JSON logging.")
+
+	cfg.Sources = []config.Source{
+		{Name: "standards", Path: srcDir, ResolvedPath: srcDir},
+	}
+	return dir, cfg
+}
+
+func TestSearchSources(t *testing.T) {
+	_, cfg := makeTestVaultWithSource(t)
+	v := vault.New(cfg)
+	defer v.Close()
+
+	t.Run("matching_query", func(t *testing.T) {
+		results := v.SearchSources("kebab-case")
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result, got %d", len(results))
+		}
+		if results[0].Source != "standards" {
+			t.Errorf("Source = %q, want standards", results[0].Source)
+		}
+		if !strings.Contains(results[0].VaultNote.Path, "@standards/") {
+			t.Errorf("Path = %q, want @standards/ prefix", results[0].VaultNote.Path)
+		}
+	})
+
+	t.Run("nested_match", func(t *testing.T) {
+		results := v.SearchSources("structured JSON")
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result, got %d", len(results))
+		}
+		if results[0].Path != "sub/logging.md" {
+			t.Errorf("Path = %q, want sub/logging.md", results[0].Path)
+		}
+	})
+
+	t.Run("no_match", func(t *testing.T) {
+		results := v.SearchSources("xyznonexistent")
+		if len(results) != 0 {
+			t.Errorf("expected 0 results, got %d", len(results))
+		}
+	})
+
+	t.Run("empty_query", func(t *testing.T) {
+		results := v.SearchSources("")
+		if results != nil {
+			t.Errorf("expected nil for empty query, got %d results", len(results))
+		}
+	})
+
+	t.Run("no_sources_configured", func(t *testing.T) {
+		_, cfgNoSrc := makeTestVault(t)
+		vNoSrc := vault.New(cfgNoSrc)
+		defer vNoSrc.Close()
+		results := vNoSrc.SearchSources("anything")
+		if results != nil {
+			t.Errorf("expected nil when no sources configured, got %d", len(results))
+		}
+	})
+}
+
+func TestReadSourceNote(t *testing.T) {
+	_, cfg := makeTestVaultWithSource(t)
+	v := vault.New(cfg)
+	defer v.Close()
+
+	t.Run("valid_read", func(t *testing.T) {
+		note, err := v.ReadSourceNote("standards", "api-naming.md")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if note.Name != "api-naming" {
+			t.Errorf("Name = %q, want api-naming", note.Name)
+		}
+		if !strings.Contains(note.Path, "@standards/") {
+			t.Errorf("Path = %q, missing @standards/ prefix", note.Path)
+		}
+		if !strings.Contains(note.Parsed.Content, "kebab-case") {
+			t.Errorf("content missing expected text")
+		}
+	})
+
+	t.Run("nested_read", func(t *testing.T) {
+		note, err := v.ReadSourceNote("standards", "sub/logging.md")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if note.Name != "logging" {
+			t.Errorf("Name = %q, want logging", note.Name)
+		}
+	})
+
+	t.Run("path_traversal_rejected", func(t *testing.T) {
+		_, err := v.ReadSourceNote("standards", "../../etc/passwd")
+		if err == nil {
+			t.Fatal("expected error for path traversal")
+		}
+		if !strings.Contains(err.Error(), "escapes source root") {
+			t.Errorf("error = %q, want 'escapes source root'", err.Error())
+		}
+	})
+
+	t.Run("unknown_source", func(t *testing.T) {
+		_, err := v.ReadSourceNote("nonexistent", "file.md")
+		if err == nil {
+			t.Fatal("expected error for unknown source")
+		}
+	})
+
+	t.Run("missing_file", func(t *testing.T) {
+		_, err := v.ReadSourceNote("standards", "does-not-exist.md")
+		if err == nil {
+			t.Fatal("expected error for missing file")
+		}
+	})
+}

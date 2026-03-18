@@ -61,18 +61,34 @@ make build          # → bin/ricket
 
 ### 1. Wire up your agent
 
-Run `ricket init` from inside your vault directory (existing or new). Pass a flag for your preferred agent:
+Ricket runs as an MCP server over stdio. Configure it in your editor's MCP settings:
 
-```bash
-cd /path/to/your/obsidian-vault
+**VS Code** — install the [Ricket extension](https://marketplace.visualstudio.com/items?itemName=AlejandroByrne-fcbt.ricket) (auto-registers the MCP server), or add manually to `.vscode/mcp.json`:
 
-ricket init --vscode          # GitHub Copilot in VS Code  → .vscode/mcp.json
-ricket init --visualstudio    # GitHub Copilot in Visual Studio → .vs/mcp.json
-ricket init --claude-code     # Claude Code → ~/.claude/mcp.json (merged)
-ricket init --all             # all three at once
+```json
+{
+  "servers": {
+    "ricket": {
+      "type": "stdio",
+      "command": "ricket",
+      "args": ["--vault-root", "/path/to/vault"]
+    }
+  }
+}
 ```
 
-ricket detects whether a `.obsidian/` folder is present and prints the right first prompt for your agent.
+**Claude Code** — add to `~/.claude/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "ricket": {
+      "command": "ricket",
+      "args": ["--vault-root", "/path/to/vault"]
+    }
+  }
+}
+```
 
 ### 2. Open your agent and send the first prompt
 
@@ -90,22 +106,17 @@ The agent inspects your vault, proposes a config, and calls `vault_write_config`
 
 ### 3. Verify
 
-```bash
-ricket status
-```
+Once `ricket.yaml` exists, restart the MCP server (reload your IDE window). The full tool set is now available. Ask your agent:
 
 ```
-Vault:       /Users/alice/obsidian-vault
-Total notes: 847
-Inbox:       3 notes
-Categories:  8
+Call vault_status to show my vault summary.
 ```
 
 ---
 
 ## Vault root resolution
 
-`ricket serve` resolves the vault root in this order:
+`ricket` resolves the vault root in this order:
 
 | Priority | Source |
 |----------|--------|
@@ -113,18 +124,6 @@ Categories:  8
 | 2 | `RICKET_VAULT_ROOT` environment variable |
 | 3 | `default_vault` in `~/.config/ricket/config.yaml` |
 | 4 | Current working directory |
-
-Set the default once:
-
-```bash
-ricket config set-default /path/to/vault
-```
-
-Validate your vault configuration at any time:
-
-```bash
-ricket config validate --vault-root /path/to/vault
-```
 
 ---
 
@@ -143,14 +142,15 @@ ricket config validate --vault-root /path/to/vault
 |------|-------------|
 | `vault_list_inbox` | List all notes in Inbox — path, name, 200-char preview |
 | `vault_triage_inbox` | Analyze Inbox notes and propose filing actions (category, destination, confidence, signals); does not mutate files |
-| `vault_read_note` | Read a note by path — frontmatter, content, tags, wikilinks |
-| `vault_search` | Search by folder, tags (AND), and/or full-text query |
+| `vault_read_note` | Read a note by path — frontmatter, content, tags, wikilinks. Supports `@source-name/path` for reading from reference sources. |
+| `vault_search` | Search by folder, tags (AND), and/or full-text query. When a text query is provided, also searches configured reference sources. |
 | `vault_get_categories` | Return all configured categories with signals |
 | `vault_get_templates` | Return all templates with their section headings |
 | `vault_file_note` | Move a note from Inbox to destination, apply template/tags/links/MOC |
 | `vault_create_note` | Create a new note with optional tags, links, and MOC update |
 | `vault_update_note` | Update an existing note's content, tags, and/or links in-place |
 | `vault_status` | Inbox count, total notes, category count |
+| `vault_list_sources` | List configured reference sources with availability status |
 
 ### `vault_write_config` parameters
 
@@ -177,6 +177,28 @@ ricket config validate --vault-root /path/to/vault
 ```
 
 All filters are **AND**-combined. Uses SQLite for tag/content queries; filesystem walk otherwise.
+
+### Reference sources (multi-vault)
+
+Ricket can expose read-only notes from external directories (shared standards, team guidelines, etc.) alongside your vault content.
+
+Add a `sources:` section to `ricket.yaml`:
+
+```yaml
+sources:
+  - name: standards
+    path: ../shared-standards     # relative to vault root, or absolute
+  - name: team-playbook
+    path: /shared/team-playbook
+```
+
+Once configured:
+
+- **`vault_search`** automatically includes source results (with a `source` field) when a text query is provided.
+- **`vault_read_note`** reads source notes using the `@source-name/path` convention: `@standards/api-naming.md`.
+- **`vault_list_sources`** returns all configured sources with their resolved paths and availability status.
+
+Source notes are **read-only** — they cannot be modified, filed, or triaged. Path traversal outside a source root is rejected.
 
 ### `vault_triage_inbox` workflow
 
@@ -216,17 +238,6 @@ At least one of `content`, `tags`, or `links` must be provided. Tags are additiv
 
 ---
 
-## Shell completion
-
-```bash
-ricket completion bash
-ricket completion zsh
-ricket completion fish
-ricket completion powershell
-```
-
----
-
 ## ricket.yaml reference
 
 ```yaml
@@ -249,8 +260,12 @@ categories:
 
 mcp:
   name: ricket      # name shown in MCP client
-  version: 0.3.0
+  version: 0.4.0
   needsApproval: true # set false to skip triage approval prompts
+
+sources:                          # read-only reference vaults
+  - name: standards               # identifier used in @standards/path
+    path: /path/to/shared-standards  # absolute or relative to vault root
 ```
 
 ### Signal hints
@@ -310,9 +325,9 @@ make clean    # remove bin/ and .ricket/
 ## Architecture
 
 ```
-cmd/ricket/          CLI (init, serve, status, config)
+cmd/ricket/          CLI (serve-only MCP server)
 internal/
-  config/            ricket.yaml load/write
+  config/            ricket.yaml load/write, multi-source resolution
   vault/             core vault operations
     analyze.go       VaultAnalysis — single-pass walk, folder tree, tags, patterns, inferred categories
     pkm.go           PKM system detection (PARA, LYT, ACE, Zettelkasten, JD, GTD, BASB, Evergreen)
@@ -322,10 +337,12 @@ internal/
     template.go      Templater placeholder substitution
     moc.go           Map-of-Content append
     index.go         SQLite search index (modernc.org/sqlite)
-    vault.go         Vault struct — all operations
+    vault.go         Vault struct — all operations, SearchSources, ReadSourceNote
   git/               Git audit trail
   mcp/               MCP server (mark3labs/mcp-go)
     server.go        Server init; migration mode; WithInstructions (VAULT_GUIDE.md)
-    tools.go         MCP tool definitions, handlers, ReadOnlyHint annotations, setup-vault prompt
+    tools.go         MCP tool definitions, handlers, source integration
+vscode-extension/    VS Code extension — auto-registers ricket as MCP server
 testdata/vault/      Realistic test vault fixture
+testdata/shared-standards/  Reference source fixture for tests
 ```

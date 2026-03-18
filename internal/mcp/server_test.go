@@ -688,3 +688,108 @@ func copyFile(src, dst string) error {
 	_, err = io.Copy(out, in)
 	return err
 }
+
+// ── vault_list_sources ────────────────────────────────────────────────────────
+
+func TestHandler_ListSources(t *testing.T) {
+	s := makeServer(t)
+	h := handleVaultListSources(s)
+
+	items := callHandlerArray(t, h, nil)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 source, got %d", len(items))
+	}
+	src, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("item is not object: %T", items[0])
+	}
+	if src["name"] != "standards" {
+		t.Errorf("name = %q, want standards", src["name"])
+	}
+	if src["available"] != true {
+		t.Errorf("available = %v, want true", src["available"])
+	}
+}
+
+// ── vault_read_note @source ───────────────────────────────────────────────────
+
+func TestHandler_ReadNote_SourceRef(t *testing.T) {
+	s := makeServer(t)
+	h := handleVaultReadNote(s)
+
+	resp, isErr := callHandler(t, h, map[string]any{
+		"path": "@standards/api-naming.md",
+	})
+	if isErr {
+		t.Fatal("unexpected error result")
+	}
+	if resp["name"] != "api-naming" {
+		t.Errorf("name = %q, want api-naming", resp["name"])
+	}
+	content, _ := resp["content"].(string)
+	if !strings.Contains(content, "kebab-case") {
+		t.Errorf("content missing expected text, got: %q", content)
+	}
+}
+
+func TestHandler_ReadNote_SourceRef_Nested(t *testing.T) {
+	s := makeServer(t)
+	h := handleVaultReadNote(s)
+
+	resp, isErr := callHandler(t, h, map[string]any{
+		"path": "@standards/observability/logging.md",
+	})
+	if isErr {
+		t.Fatal("unexpected error result")
+	}
+	if resp["name"] != "logging" {
+		t.Errorf("name = %q, want logging", resp["name"])
+	}
+}
+
+func TestHandler_ReadNote_SourceRef_Invalid(t *testing.T) {
+	s := makeServer(t)
+	h := handleVaultReadNote(s)
+
+	// Missing slash after @
+	if !isErrorResult(t, h, map[string]any{"path": "@standards"}) {
+		t.Error("expected error for @source without path")
+	}
+
+	// Unknown source
+	if !isErrorResult(t, h, map[string]any{"path": "@nonexistent/file.md"}) {
+		t.Error("expected error for unknown source")
+	}
+
+	// Path traversal via source
+	if !isErrorResult(t, h, map[string]any{"path": "@standards/../../etc/passwd"}) {
+		t.Error("expected error for path traversal in source ref")
+	}
+}
+
+// ── vault_search with sources ─────────────────────────────────────────────────
+
+func TestHandler_Search_IncludesSources(t *testing.T) {
+	s := makeServer(t)
+	h := handleVaultSearch(s)
+
+	items := callHandlerArray(t, h, map[string]any{
+		"query": "kebab-case",
+	})
+
+	// Should find the api-naming note from the standards source
+	found := false
+	for _, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if item["source"] == "standards" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected search results to include source notes with source field")
+	}
+}

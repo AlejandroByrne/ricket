@@ -18,6 +18,23 @@ No manual MCP config editing required.
 |---|---|---|---|
 | `ricket.vaultRoot` | `string` | `""` | Absolute path to your Obsidian vault. Leave empty to let ricket auto-resolve. |
 
+## Multi-source (shared standards)
+
+Ricket supports read-only reference sources — shared team standards, style guides, or any external note directories. Configure them in your vault's `ricket.yaml`:
+
+```yaml
+sources:
+  - name: standards
+    path: /path/to/shared-standards
+```
+
+Once configured, your AI agent can:
+- **Search** across sources automatically (results include a `source` field)
+- **Read** source notes with `@standards/api-naming.md` syntax
+- **List** all configured sources and their availability
+
+Source notes are read-only and cannot be modified through ricket.
+
 ## Development
 
 ```bash

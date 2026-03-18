@@ -186,6 +186,133 @@ mcp:
 	})
 }
 
+func TestLoadConfig_Sources(t *testing.T) {
+	t.Run("absolute_path", func(t *testing.T) {
+		srcDir := t.TempDir()
+		dir := t.TempDir()
+		writeYAML(t, dir, `
+categories:
+  - name: note
+    folder: Notes/
+    tags: [note]
+sources:
+  - name: standards
+    path: `+srcDir+`
+`)
+		cfg, err := config.LoadConfig(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(cfg.Sources) != 1 {
+			t.Fatalf("len(Sources) = %d, want 1", len(cfg.Sources))
+		}
+		if cfg.Sources[0].Name != "standards" {
+			t.Errorf("Name = %q, want standards", cfg.Sources[0].Name)
+		}
+		if cfg.Sources[0].ResolvedPath != filepath.Clean(srcDir) {
+			t.Errorf("ResolvedPath = %q, want %q", cfg.Sources[0].ResolvedPath, filepath.Clean(srcDir))
+		}
+	})
+
+	t.Run("relative_path", func(t *testing.T) {
+		dir := t.TempDir()
+		writeYAML(t, dir, `
+categories:
+  - name: note
+    folder: Notes/
+    tags: [note]
+sources:
+  - name: shared
+    path: ../shared-standards
+`)
+		cfg, err := config.LoadConfig(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(cfg.Sources) != 1 {
+			t.Fatalf("len(Sources) = %d, want 1", len(cfg.Sources))
+		}
+		want := filepath.Clean(filepath.Join(dir, "..", "shared-standards"))
+		if cfg.Sources[0].ResolvedPath != want {
+			t.Errorf("ResolvedPath = %q, want %q", cfg.Sources[0].ResolvedPath, want)
+		}
+	})
+
+	t.Run("skip_empty_name_or_path", func(t *testing.T) {
+		dir := t.TempDir()
+		writeYAML(t, dir, `
+categories:
+  - name: note
+    folder: Notes/
+    tags: [note]
+sources:
+  - name: ""
+    path: /some/path
+  - name: valid
+    path: ""
+`)
+		cfg, err := config.LoadConfig(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(cfg.Sources) != 0 {
+			t.Errorf("len(Sources) = %d, want 0 (both should be skipped)", len(cfg.Sources))
+		}
+	})
+
+	t.Run("no_sources", func(t *testing.T) {
+		dir := t.TempDir()
+		writeYAML(t, dir, `
+categories:
+  - name: note
+    folder: Notes/
+    tags: [note]
+`)
+		cfg, err := config.LoadConfig(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(cfg.Sources) != 0 {
+			t.Errorf("len(Sources) = %d, want 0", len(cfg.Sources))
+		}
+	})
+}
+
+func TestWriteConfig_Sources(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.RicketConfig{
+		VaultRoot: dir,
+		Vault: config.VaultConfig{
+			Root:      dir,
+			Inbox:     "Inbox/",
+			Archive:   "Archive/",
+			Templates: "_templates/",
+		},
+		Categories: []config.Category{
+			{Name: "note", Folder: "Notes/", Tags: []string{"note"}},
+		},
+		Sources: []config.Source{
+			{Name: "standards", Path: "/shared/standards", ResolvedPath: "/shared/standards"},
+		},
+	}
+	if err := config.WriteConfig(cfg, dir); err != nil {
+		t.Fatalf("WriteConfig: %v", err)
+	}
+	loaded, err := config.LoadConfig(dir)
+	if err != nil {
+		t.Fatalf("LoadConfig after WriteConfig: %v", err)
+	}
+	if len(loaded.Sources) != 1 {
+		t.Fatalf("round-trip sources: got %d, want 1", len(loaded.Sources))
+	}
+	if loaded.Sources[0].Name != "standards" {
+		t.Errorf("round-trip Name = %q, want standards", loaded.Sources[0].Name)
+	}
+	if loaded.Sources[0].Path != "/shared/standards" {
+		t.Errorf("round-trip Path = %q, want /shared/standards", loaded.Sources[0].Path)
+	}
+}
+
 func TestWriteConfig(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &config.RicketConfig{
