@@ -25,8 +25,9 @@ type TagCount struct {
 
 // NamingPattern captures the filename convention detected in a folder.
 type NamingPattern struct {
-	Folder   string   `json:"folder"`  // relative, trailing slash
-	Pattern  string   `json:"pattern"` // e.g. "YYYY-MM-DD-{topic}.md"
+	Folder   string   `json:"folder"`          // relative, trailing slash
+	Pattern  string   `json:"pattern"`         // e.g. "YYYY-MM-DD-{topic}.md"
+	Type     string   `json:"type,omitempty"`  // e.g. "zettelkasten-uid", "date-topic"
 	Examples []string `json:"examples,omitempty"`
 }
 
@@ -66,6 +67,10 @@ type VaultAnalysis struct {
 	DetectedInbox         string             `json:"detectedInbox"`
 	DetectedArchive       string             `json:"detectedArchive"`
 	DetectedTemplatesDir  string             `json:"detectedTemplatesDir"`
+	PKMSystem             *PKMSystemResult   `json:"pkmSystem,omitempty"`
+	FrontmatterSchema     *FrontmatterSchema `json:"frontmatterSchema,omitempty"`
+	LinkAnalysis          *LinkAnalysis      `json:"linkAnalysis,omitempty"`
+	TagTaxonomy           *TagTaxonomy       `json:"tagTaxonomy,omitempty"`
 }
 
 // AnalyzeVaultRoot scans root and returns a VaultAnalysis.
@@ -94,20 +99,29 @@ func AnalyzeVaultRoot(root string) (*VaultAnalysis, error) {
 	a.DetectedArchive = detectSpecialFolder(abs, []string{"Archive", "archive", "_archive"})
 	a.DetectedTemplatesDir = detectSpecialFolder(abs, []string{"_templates", "Templates", "templates", "_Templates"})
 
-	// Walk all notes, skipping hidden dirs and the templates directory
-	notesByFolder, allNotes := walkVaultNotes(abs, a.DetectedTemplatesDir)
-	a.TotalNoteCount = len(allNotes)
+	// Single-pass walk: read and parse every note once
+	state := buildAnalysisState(abs, a.DetectedTemplatesDir)
+	a.TotalNoteCount = state.totalNotes
+	a.MOCFiles = state.mocFiles
 
-	a.Folders = buildFolderEntries(abs, notesByFolder)
-	a.TagFrequency = collectTagFrequency(allNotes)
-	a.MOCFiles = findMOCFiles(abs, allNotes)
-	a.NamingPatterns = buildNamingPatterns(abs, notesByFolder)
+	a.Folders = buildFolderEntries(state)
+	a.TagFrequency = tagFrequencyFromState(state)
+	a.NamingPatterns = buildNamingPatterns(state)
 
 	if a.DetectedTemplatesDir != "" {
 		a.Templates = loadTemplateEntries(filepath.Join(abs, filepath.FromSlash(a.DetectedTemplatesDir)))
 	}
 
-	a.InferredCategories = inferCategories(abs, a, notesByFolder)
+	// New analysis dimensions
+	a.FrontmatterSchema = analyzeFrontmatterSchema(state)
+	a.LinkAnalysis = analyzeLinkStructure(state)
+	a.TagTaxonomy = analyzeTagTaxonomy(state)
+
+	// PKM system detection
+	a.PKMSystem = detectPKMSystem(state)
+
+	// Category inference with PKM context boost
+	a.InferredCategories = inferCategories(state, a, a.PKMSystem)
 	a.IsNewVault = a.TotalNoteCount == 0
 
 	return a, nil
@@ -115,11 +129,19 @@ func AnalyzeVaultRoot(root string) (*VaultAnalysis, error) {
 
 // ── Filesystem walk ───────────────────────────────────────────────────────────
 
-// walkVaultNotes walks root, skipping hidden directories and the templates dir.
-// Returns notesByFolder (abs dir → []abs file) and allNotes ([]abs file).
-func walkVaultNotes(root, templatesDir string) (map[string][]string, []string) {
-	notesByFolder := make(map[string][]string)
-	var allNotes []string
+// buildAnalysisState performs a single-pass walk of the vault, reading and
+// parsing each markdown note once. All aggregate metrics (tags, frontmatter
+// keys, link targets, checkboxes) are computed during the walk.
+func buildAnalysisState(root, templatesDir string) *analysisState {
+	state := &analysisState{
+		root:          root,
+		notesByFolder: make(map[string][]*noteData),
+		folderSet:     make(map[string]bool),
+		allFolderSet:  make(map[string]bool),
+		tagFreq:       make(map[string]int),
+		fmKeyFreq:     make(map[string]int),
+		linkTargets:   make(map[string]int),
+	}
 
 	var templatesAbs string
 	if templatesDir != "" {
@@ -137,18 +159,94 @@ func walkVaultNotes(root, templatesDir string) (map[string][]string, []string) {
 			if templatesAbs != "" && filepath.Clean(path) == templatesAbs {
 				return filepath.SkipDir
 			}
+			rel, relErr := filepath.Rel(root, path)
+			if relErr == nil {
+				rel = filepath.ToSlash(rel)
+				if rel != "." {
+					state.allFolderSet[strings.ToLower(rel)] = true
+					parts := strings.Split(rel, "/")
+					if len(parts) == 1 {
+						state.folderSet[strings.ToLower(parts[0])] = true
+					}
+					if len(parts) > state.maxFolderDepth {
+						state.maxFolderDepth = len(parts)
+					}
+				}
+			}
 			return nil
 		}
 		if !strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
 			return nil
 		}
+
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil
+		}
+
+		rel, _ := filepath.Rel(root, path)
+		rel = filepath.ToSlash(rel)
+		folder := filepath.ToSlash(filepath.Dir(rel))
+		if folder == "." {
+			folder = ""
+		} else {
+			folder += "/"
+		}
+
+		baseName := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+		parsed := ParseNote(string(data))
+		tags := GetTags(parsed)
+		links := ExtractWikilinks(parsed.Content)
+
+		nd := &noteData{
+			RelPath:   rel,
+			AbsPath:   path,
+			Parsed:    parsed,
+			Tags:      tags,
+			Wikilinks: links,
+			Folder:    folder,
+			BaseName:  baseName,
+		}
+
 		dir := filepath.Dir(path)
-		notesByFolder[dir] = append(notesByFolder[dir], path)
-		allNotes = append(allNotes, path)
+		state.notesByFolder[dir] = append(state.notesByFolder[dir], nd)
+		state.allNotes = append(state.allNotes, nd)
+
+		for _, tag := range tags {
+			tag = strings.ToLower(strings.TrimSpace(tag))
+			if tag != "" {
+				state.tagFreq[tag]++
+			}
+		}
+		for key := range parsed.Frontmatter {
+			state.fmKeyFreq[strings.ToLower(key)]++
+		}
+		for _, link := range links {
+			state.linkTargets[strings.ToLower(link)]++
+			state.totalLinks++
+		}
+		for _, line := range strings.Split(parsed.Content, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "- [ ]") || strings.HasPrefix(trimmed, "- [x]") || strings.HasPrefix(trimmed, "- [X]") {
+				state.checkboxLines++
+			}
+		}
+
 		return nil
 	})
 
-	return notesByFolder, allNotes
+	state.totalNotes = len(state.allNotes)
+
+	mocNames := map[string]bool{"moc": true, "index": true, "home": true}
+	for _, nd := range state.allNotes {
+		base := strings.ToLower(nd.BaseName)
+		if mocNames[base] {
+			state.mocFiles = append(state.mocFiles, nd.RelPath)
+		}
+	}
+	sort.Strings(state.mocFiles)
+
+	return state
 }
 
 // detectSpecialFolder returns the first candidate folder name (with trailing /)
@@ -165,10 +263,10 @@ func detectSpecialFolder(root string, candidates []string) string {
 
 // ── Aggregate metrics ─────────────────────────────────────────────────────────
 
-func buildFolderEntries(root string, notesByFolder map[string][]string) []FolderEntry {
+func buildFolderEntries(state *analysisState) []FolderEntry {
 	var entries []FolderEntry
-	for dir, notes := range notesByFolder {
-		rel, err := filepath.Rel(root, dir)
+	for dir, notes := range state.notesByFolder {
+		rel, err := filepath.Rel(state.root, dir)
 		if err != nil {
 			continue
 		}
@@ -177,11 +275,11 @@ func buildFolderEntries(root string, notesByFolder map[string][]string) []Folder
 			continue // skip vault-root level
 		}
 		samples := make([]string, 0, 5)
-		for i, n := range notes {
+		for i, nd := range notes {
 			if i >= 5 {
 				break
 			}
-			samples = append(samples, filepath.Base(n))
+			samples = append(samples, filepath.Base(nd.AbsPath))
 		}
 		entries = append(entries, FolderEntry{
 			Path:        rel + "/",
@@ -193,23 +291,10 @@ func buildFolderEntries(root string, notesByFolder map[string][]string) []Folder
 	return entries
 }
 
-func collectTagFrequency(notes []string) []TagCount {
-	counts := make(map[string]int)
-	for _, path := range notes {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		parsed := ParseNote(string(data))
-		for _, tag := range GetTags(parsed) {
-			tag = strings.ToLower(strings.TrimSpace(tag))
-			if tag != "" {
-				counts[tag]++
-			}
-		}
-	}
-	result := make([]TagCount, 0, len(counts))
-	for tag, count := range counts {
+// tagFrequencyFromState converts the pre-computed tag frequency map to sorted TagCount slice.
+func tagFrequencyFromState(state *analysisState) []TagCount {
+	result := make([]TagCount, 0, len(state.tagFreq))
+	for tag, count := range state.tagFreq {
 		result = append(result, TagCount{Tag: tag, Count: count})
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -224,31 +309,17 @@ func collectTagFrequency(notes []string) []TagCount {
 	return result
 }
 
-func findMOCFiles(root string, notes []string) []string {
-	mocNames := map[string]bool{"moc": true, "index": true, "home": true}
-	var mocs []string
-	for _, note := range notes {
-		base := strings.ToLower(strings.TrimSuffix(filepath.Base(note), ".md"))
-		if mocNames[base] {
-			rel, _ := filepath.Rel(root, note)
-			mocs = append(mocs, filepath.ToSlash(rel))
-		}
-	}
-	sort.Strings(mocs)
-	return mocs
-}
-
 // ── Naming patterns ───────────────────────────────────────────────────────────
 
 var datePatternRE = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}`)
 
-func buildNamingPatterns(root string, notesByFolder map[string][]string) []NamingPattern {
+func buildNamingPatterns(state *analysisState) []NamingPattern {
 	var patterns []NamingPattern
-	for dir, notes := range notesByFolder {
+	for dir, notes := range state.notesByFolder {
 		if len(notes) < 2 {
 			continue
 		}
-		rel, err := filepath.Rel(root, dir)
+		rel, err := filepath.Rel(state.root, dir)
 		if err != nil {
 			continue
 		}
@@ -257,13 +328,15 @@ func buildNamingPatterns(root string, notesByFolder map[string][]string) []Namin
 			continue
 		}
 		names := make([]string, len(notes))
-		for i, n := range notes {
-			names[i] = strings.TrimSuffix(filepath.Base(n), ".md")
+		for i, nd := range notes {
+			names[i] = nd.BaseName
 		}
 		pattern, examples := classifyNamingPattern(names)
+		namingType := classifyNamingType(names)
 		patterns = append(patterns, NamingPattern{
 			Folder:   rel + "/",
 			Pattern:  pattern,
+			Type:     namingType,
 			Examples: examples,
 		})
 	}
@@ -308,6 +381,67 @@ func classifyNamingPattern(names []string) (string, []string) {
 		return "use-{topic}.md", examples
 	}
 	return "{topic}.md", examples
+}
+
+// classifyNamingType returns a type classification for the naming pattern.
+func classifyNamingType(names []string) string {
+	total := len(names)
+	if total == 0 {
+		return "kebab-case"
+	}
+
+	zettelCount := 0
+	jdCount := 0
+	adrCount := 0
+	dateCount := 0
+	sentenceCount := 0
+
+	for _, name := range names {
+		switch {
+		case zettelUIDRE.MatchString(name):
+			zettelCount++
+		case jdFileRE.MatchString(name):
+			jdCount++
+		case strings.HasPrefix(name, "use-") || strings.HasPrefix(name, "adr-"):
+			adrCount++
+		case datePatternRE.MatchString(name):
+			dateCount++
+		default:
+			words := strings.FieldsFunc(name, func(r rune) bool {
+				return r == '-' || r == '_' || r == ' '
+			})
+			if len(words) >= 5 {
+				sentenceCount++
+			}
+		}
+	}
+
+	if zettelCount*2 >= total {
+		return "zettelkasten-uid"
+	}
+	if jdCount*2 >= total {
+		return "johnny-decimal"
+	}
+	if adrCount*2 >= total {
+		return "adr-prefix"
+	}
+	if dateCount*2 >= total {
+		dateOnly := true
+		for _, name := range names {
+			if datePatternRE.MatchString(name) && len(name) > 10 {
+				dateOnly = false
+				break
+			}
+		}
+		if dateOnly {
+			return "date-only"
+		}
+		return "date-topic"
+	}
+	if sentenceCount*2 >= total {
+		return "sentence-title"
+	}
+	return "kebab-case"
 }
 
 // ── Templates ─────────────────────────────────────────────────────────────────
@@ -416,7 +550,7 @@ var knownNonOrgTags = map[string]bool{
 	"journal": true, "note": true, "notes": true,
 }
 
-func inferCategories(root string, a *VaultAnalysis, notesByFolder map[string][]string) []InferredCategory {
+func inferCategories(state *analysisState, a *VaultAnalysis, pkmResult *PKMSystemResult) []InferredCategory {
 	skipPaths := buildSkipSet(a)
 	usedNames := make(map[string]bool)
 
@@ -428,10 +562,10 @@ func inferCategories(root string, a *VaultAnalysis, notesByFolder map[string][]s
 		if shouldSkipFolder(folder.Path, skipPaths) {
 			continue
 		}
-		absDir := filepath.Clean(filepath.Join(root, filepath.FromSlash(strings.TrimSuffix(folder.Path, "/"))))
-		notes := notesByFolder[absDir]
+		absDir := filepath.Clean(filepath.Join(state.root, filepath.FromSlash(strings.TrimSuffix(folder.Path, "/"))))
+		notes := state.notesByFolder[absDir]
 
-		cat := inferSingleCategory(folder, notes, a)
+		cat := inferSingleCategory(folder, notes, a, pkmResult)
 		if cat == nil {
 			continue
 		}
@@ -455,11 +589,11 @@ func inferCategories(root string, a *VaultAnalysis, notesByFolder map[string][]s
 	return categories
 }
 
-func inferSingleCategory(folder FolderEntry, notes []string, a *VaultAnalysis) *InferredCategory {
+func inferSingleCategory(folder FolderEntry, notes []*noteData, a *VaultAnalysis, pkmResult *PKMSystemResult) *InferredCategory {
 	pathParts := strings.Split(strings.ToLower(strings.TrimSuffix(folder.Path, "/")), "/")
 
 	hint, matchedByName := findHintFromPath(pathParts)
-	folderTags := folderTagFreq(notes)
+	folderTags := folderTagFreqFromNotes(notes)
 
 	if hint == nil {
 		hint, matchedByName = findHintFromTags(folderTags)
@@ -469,7 +603,6 @@ func inferSingleCategory(folder FolderEntry, notes []string, a *VaultAnalysis) *
 	}
 
 	orgTag := findOrgTag(folderTags, hint)
-
 	mocPath := findMOCInFolder(folder.Path, a.MOCFiles)
 
 	naming := findNamingForFolder(folder.Path, a.NamingPatterns)
@@ -495,7 +628,7 @@ func inferSingleCategory(folder FolderEntry, notes []string, a *VaultAnalysis) *
 		catName = orgTag + "-" + hint.typeName
 	}
 
-	conf, reasoning := calcConfidence(folder, matchedByName, hint, orgTag, mocPath, template, naming)
+	conf, reasoning := calcConfidence(folder, matchedByName, hint, orgTag, mocPath, template, naming, pkmResult)
 
 	return &InferredCategory{
 		Name:       catName,
@@ -536,16 +669,11 @@ func findHintFromTags(tags []TagCount) (*categoryHint, bool) {
 	return nil, false
 }
 
-// folderTagFreq returns tags sorted by frequency for the notes in one folder.
-func folderTagFreq(notes []string) []TagCount {
+// folderTagFreqFromNotes returns tags sorted by frequency for pre-parsed notes.
+func folderTagFreqFromNotes(notes []*noteData) []TagCount {
 	counts := make(map[string]int)
-	for _, path := range notes {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		parsed := ParseNote(string(data))
-		for _, tag := range GetTags(parsed) {
+	for _, nd := range notes {
+		for _, tag := range nd.Tags {
 			tag = strings.ToLower(strings.TrimSpace(tag))
 			if tag != "" {
 				counts[tag]++
@@ -635,7 +763,7 @@ func templateExists(name string, templates []TemplateEntry) bool {
 	return false
 }
 
-func calcConfidence(folder FolderEntry, matchedByName bool, hint *categoryHint, orgTag, mocPath, template, naming string) (float64, string) {
+func calcConfidence(folder FolderEntry, matchedByName bool, hint *categoryHint, orgTag, mocPath, template, naming string, pkmResult *PKMSystemResult) (float64, string) {
 	var conf float64
 	var reasons []string
 
@@ -661,6 +789,10 @@ func calcConfidence(folder FolderEntry, matchedByName bool, hint *categoryHint, 
 	if naming != "" && naming != "{topic}.md" {
 		conf += 0.15
 		reasons = append(reasons, fmt.Sprintf("naming pattern %q", naming))
+	}
+	if isPKMAligned(hint.typeName, folder.Path, pkmResult) {
+		conf += 0.10
+		reasons = append(reasons, fmt.Sprintf("aligned with %s system", pkmResult.Primary))
 	}
 	if conf > 1.0 {
 		conf = 1.0

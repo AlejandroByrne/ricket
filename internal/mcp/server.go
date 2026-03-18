@@ -4,6 +4,7 @@ package mcp
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
@@ -52,7 +53,13 @@ func (s *RicketMCPServer) Start() error {
 		}
 	}
 
-	srv := mcpserver.NewMCPServer(name, version)
+	var opts []mcpserver.ServerOption
+	opts = append(opts, mcpserver.WithPromptCapabilities(false))
+	if guide := loadVaultGuide(s.vaultRoot); guide != "" {
+		opts = append(opts, mcpserver.WithInstructions(guide))
+	}
+
+	srv := mcpserver.NewMCPServer(name, version, opts...)
 	registerTools(srv, s)
 
 	fmt.Fprintf(os.Stderr, "ricket MCP server running (vault: %s)\n", s.vaultRoot)
@@ -61,7 +68,23 @@ func (s *RicketMCPServer) Start() error {
 
 // startMigrationMode runs a minimal server exposing only the two setup tools.
 func (s *RicketMCPServer) startMigrationMode() error {
-	srv := mcpserver.NewMCPServer("ricket", "0.2.0")
+	var opts []mcpserver.ServerOption
+	opts = append(opts, mcpserver.WithPromptCapabilities(false))
+	if guide := loadVaultGuide(s.vaultRoot); guide != "" {
+		opts = append(opts, mcpserver.WithInstructions(guide))
+	}
+
+	srv := mcpserver.NewMCPServer("ricket", "0.2.0", opts...)
 	registerMigrationTools(srv, s)
 	return mcpserver.ServeStdio(srv)
+}
+
+// loadVaultGuide reads VAULT_GUIDE.md from the vault root if it exists.
+// The content is injected as server-level instructions into the MCP initialize response.
+func loadVaultGuide(vaultRoot string) string {
+	data, err := os.ReadFile(filepath.Join(vaultRoot, "VAULT_GUIDE.md"))
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }

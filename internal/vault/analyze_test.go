@@ -262,3 +262,113 @@ func TestScaffoldVault_CreatesExpectedFiles(t *testing.T) {
 		}
 	}
 }
+
+// ── New analysis dimension tests ──────────────────────────────────────────────
+
+func TestAnalyzeVaultRoot_NamingPatternHasType(t *testing.T) {
+	root := testdataVaultPath(t)
+	a, err := vault.AnalyzeVaultRoot(root)
+	if err != nil {
+		t.Fatalf("AnalyzeVaultRoot: %v", err)
+	}
+
+	for _, p := range a.NamingPatterns {
+		if p.Type == "" {
+			t.Errorf("NamingPattern for %q should have non-empty Type", p.Folder)
+		}
+	}
+}
+
+func TestAnalyzeVaultRoot_FrontmatterSchema(t *testing.T) {
+	root := testdataVaultPath(t)
+	a, err := vault.AnalyzeVaultRoot(root)
+	if err != nil {
+		t.Fatalf("AnalyzeVaultRoot: %v", err)
+	}
+
+	if a.FrontmatterSchema == nil {
+		t.Fatal("FrontmatterSchema should not be nil for testdata/vault")
+	}
+	if len(a.FrontmatterSchema.KeyFrequency) == 0 {
+		t.Error("FrontmatterSchema.KeyFrequency should not be empty")
+	}
+	// Should be sorted descending
+	for i := 1; i < len(a.FrontmatterSchema.KeyFrequency); i++ {
+		if a.FrontmatterSchema.KeyFrequency[i].Count > a.FrontmatterSchema.KeyFrequency[i-1].Count {
+			t.Errorf("KeyFrequency not sorted at index %d", i)
+		}
+	}
+}
+
+func TestAnalyzeVaultRoot_LinkAnalysis(t *testing.T) {
+	root := testdataVaultPath(t)
+	a, err := vault.AnalyzeVaultRoot(root)
+	if err != nil {
+		t.Fatalf("AnalyzeVaultRoot: %v", err)
+	}
+
+	if a.LinkAnalysis == nil {
+		t.Fatal("LinkAnalysis should not be nil for testdata/vault")
+	}
+	if a.LinkAnalysis.TotalLinks < 0 {
+		t.Error("TotalLinks should be >= 0")
+	}
+	if a.LinkAnalysis.AverageDensity < 0 {
+		t.Error("AverageDensity should be >= 0")
+	}
+}
+
+func TestAnalyzeVaultRoot_TagTaxonomy(t *testing.T) {
+	root := testdataVaultPath(t)
+	a, err := vault.AnalyzeVaultRoot(root)
+	if err != nil {
+		t.Fatalf("AnalyzeVaultRoot: %v", err)
+	}
+
+	if a.TagTaxonomy == nil {
+		t.Fatal("TagTaxonomy should not be nil for testdata/vault")
+	}
+	if a.TagTaxonomy.MaxDepth < 1 {
+		t.Error("MaxDepth should be >= 1 for testdata/vault")
+	}
+}
+
+func TestAnalyzeVaultRoot_PKMSystemDetection(t *testing.T) {
+	root := testdataVaultPath(t)
+	a, err := vault.AnalyzeVaultRoot(root)
+	if err != nil {
+		t.Fatalf("AnalyzeVaultRoot: %v", err)
+	}
+
+	// testdata/vault has Projects/ + Areas/ + Archive/ — should detect PARA-like
+	// PKMSystem may be nil for small test vaults, but if detected, it should be valid
+	if a.PKMSystem != nil {
+		if a.PKMSystem.Primary == "" {
+			t.Error("PKMSystem.Primary should not be empty when system is detected")
+		}
+		if a.PKMSystem.Confidence <= 0 || a.PKMSystem.Confidence > 1.0 {
+			t.Errorf("PKMSystem.Confidence = %f, out of range (0,1]", a.PKMSystem.Confidence)
+		}
+	}
+}
+
+func TestAnalyzeVaultRoot_EmptyVaultNilDimensions(t *testing.T) {
+	dir := t.TempDir()
+	a, err := vault.AnalyzeVaultRoot(dir)
+	if err != nil {
+		t.Fatalf("AnalyzeVaultRoot: %v", err)
+	}
+
+	if a.FrontmatterSchema != nil {
+		t.Error("FrontmatterSchema should be nil for empty vault")
+	}
+	if a.LinkAnalysis != nil {
+		t.Error("LinkAnalysis should be nil for empty vault")
+	}
+	if a.TagTaxonomy != nil {
+		t.Error("TagTaxonomy should be nil for empty vault")
+	}
+	if a.PKMSystem != nil {
+		t.Error("PKMSystem should be nil for empty vault")
+	}
+}

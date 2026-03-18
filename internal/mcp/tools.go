@@ -31,12 +31,18 @@ func registerTools(srv *mcpserver.MCPServer, s *RicketMCPServer) {
 	srv.AddTool(toolCreateNote(), handleVaultCreateNote(s))
 	srv.AddTool(toolUpdateNote(), handleVaultUpdateNote(s))
 	srv.AddTool(toolStatus(), handleVaultStatus(s))
+
+	// Prompts
+	registerPrompts(srv, s)
 }
 
 // registerMigrationTools registers only the setup tools used before ricket.yaml exists.
 func registerMigrationTools(srv *mcpserver.MCPServer, s *RicketMCPServer) {
 	srv.AddTool(toolAnalyze(), handleVaultAnalyze(s))
 	srv.AddTool(toolWriteConfig(), handleVaultWriteConfig(s))
+
+	// Prompts available in both modes
+	registerPrompts(srv, s)
 }
 
 // ── Tool definitions ──────────────────────────────────────────────────────────
@@ -44,18 +50,21 @@ func registerMigrationTools(srv *mcpserver.MCPServer, s *RicketMCPServer) {
 func toolListInbox() mcplib.Tool {
 	return mcplib.NewTool("vault_list_inbox",
 		mcplib.WithDescription("List all notes in the vault inbox. Returns path, name, and a 200-character preview for each note."),
+		mcplib.WithReadOnlyHintAnnotation(true),
 	)
 }
 
 func toolTriageInbox() mcplib.Tool {
 	return mcplib.NewTool("vault_triage_inbox",
 		mcplib.WithDescription("Analyze Inbox notes and propose filing actions with category, destination path, confidence, and matched signals. Does not move files."),
+		mcplib.WithReadOnlyHintAnnotation(true),
 	)
 }
 
 func toolReadNote() mcplib.Tool {
 	return mcplib.NewTool("vault_read_note",
 		mcplib.WithDescription("Read a single note by its relative vault path. Returns path, name, frontmatter, content, tags, and wikilinks."),
+		mcplib.WithReadOnlyHintAnnotation(true),
 		mcplib.WithString("path",
 			mcplib.Required(),
 			mcplib.Description("Relative path of the note within the vault (e.g. 'Inbox/my-note.md')"),
@@ -66,6 +75,7 @@ func toolReadNote() mcplib.Tool {
 func toolSearch() mcplib.Tool {
 	t := mcplib.NewTool("vault_search",
 		mcplib.WithDescription("Search notes by folder, tags, and/or full-text query. All filters are combined (AND logic)."),
+		mcplib.WithReadOnlyHintAnnotation(true),
 		mcplib.WithString("folder",
 			mcplib.Description("Restrict search to this folder (relative path, optional)"),
 		),
@@ -84,12 +94,14 @@ func toolSearch() mcplib.Tool {
 func toolGetCategories() mcplib.Tool {
 	return mcplib.NewTool("vault_get_categories",
 		mcplib.WithDescription("Return all configured note categories with their folders, templates, tags, MOC paths, and classification signals."),
+		mcplib.WithReadOnlyHintAnnotation(true),
 	)
 }
 
 func toolGetTemplates() mcplib.Tool {
 	return mcplib.NewTool("vault_get_templates",
 		mcplib.WithDescription("Return all available templates with their names and section headings (## fields)."),
+		mcplib.WithReadOnlyHintAnnotation(true),
 	)
 }
 
@@ -185,6 +197,7 @@ func toolUpdateNote() mcplib.Tool {
 func toolStatus() mcplib.Tool {
 	return mcplib.NewTool("vault_status",
 		mcplib.WithDescription("Return a summary of vault health: inbox count, total notes, and number of categories."),
+		mcplib.WithReadOnlyHintAnnotation(true),
 	)
 }
 
@@ -479,6 +492,7 @@ func extractTemplateFields(content string) []string {
 func toolAnalyze() mcplib.Tool {
 	return mcplib.NewTool("vault_analyze",
 		mcplib.WithDescription(`Analyze vault structure without requiring ricket.yaml. Scans folder tree, frontmatter tags, naming conventions, and templates to produce a complete picture of the vault. Returns inferred categories with confidence scores and reasoning strings. Use this as the first step of the migration or new-vault setup flow, then call vault_write_config with the agent-generated config.`),
+		mcplib.WithReadOnlyHintAnnotation(true),
 	)
 }
 
@@ -592,4 +606,37 @@ func validateRelPath(p string) error {
 		return fmt.Errorf("path must not contain path traversal (..)")
 	}
 	return nil
+}
+
+// ── Prompts ─────────────────────────────────────────────────────────────────
+
+func registerPrompts(srv *mcpserver.MCPServer, s *RicketMCPServer) {
+	srv.AddPrompt(mcplib.Prompt{
+		Name:        "setup-vault",
+		Description: "Initialize or reconfigure your vault with ricket. Analyzes vault structure, detects PKM system, and generates ricket.yaml configuration.",
+	}, handleSetupVaultPrompt(s))
+}
+
+func handleSetupVaultPrompt(s *RicketMCPServer) mcpserver.PromptHandlerFunc {
+	return func(ctx context.Context, req mcplib.GetPromptRequest) (*mcplib.GetPromptResult, error) {
+		return &mcplib.GetPromptResult{
+			Description: "Ricket vault setup flow",
+			Messages: []mcplib.PromptMessage{
+				{
+					Role: mcplib.RoleUser,
+					Content: mcplib.TextContent{
+						Type: "text",
+						Text: `Set up my vault with ricket. Follow these steps:
+
+1. Call vault_analyze to inspect the vault structure, detect the PKM system, and identify categories.
+2. Review the analysis results — especially the detected PKM system, inferred categories, tag taxonomy, and link structure.
+3. Generate a ricket.yaml configuration that preserves my existing organizational patterns.
+4. Write a VAULT_GUIDE.md that explains my vault's structure and filing rules for AI agents.
+5. Call vault_write_config with the generated config and guide. Set scaffold:true if this is a new vault.
+6. Tell me to reload the editor window so the MCP server picks up the new config.`,
+					},
+				},
+			},
+		}, nil
+	}
 }
