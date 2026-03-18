@@ -186,27 +186,25 @@ mcp:
 	})
 }
 
-func TestGenerateDefaultConfig(t *testing.T) {
-	dir := t.TempDir()
-	cfg := config.GenerateDefaultConfig(dir)
-
-	if cfg.VaultRoot == "" {
-		t.Error("VaultRoot should not be empty")
-	}
-	if len(cfg.Categories) == 0 {
-		t.Error("expected at least one default category")
-	}
-	if cfg.Vault.Inbox == "" {
-		t.Error("Inbox should not be empty")
-	}
-	if cfg.Vault.Templates == "" {
-		t.Error("Templates should not be empty")
-	}
-}
-
 func TestWriteConfig(t *testing.T) {
 	dir := t.TempDir()
-	cfg := config.GenerateDefaultConfig(dir)
+	cfg := &config.RicketConfig{
+		VaultRoot: dir,
+		Vault: config.VaultConfig{
+			Root:      dir,
+			Inbox:     "Inbox/",
+			Archive:   "Archive/",
+			Templates: "_templates/",
+		},
+		Categories: []config.Category{
+			{
+				Name:    "test-decision",
+				Folder:  "Areas/decisions/",
+				Tags:    []string{"decision"},
+				Signals: []string{"decision", "standard"},
+			},
+		},
+	}
 
 	if err := config.WriteConfig(cfg, dir); err != nil {
 		t.Fatalf("WriteConfig: %v", err)

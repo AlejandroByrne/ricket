@@ -183,56 +183,54 @@ func TestCLI_ConfigValidate(t *testing.T) {
 	}
 }
 
-func TestCLI_Init_ExistingConfig(t *testing.T) {
-	vault := testVaultPath(t)
-	// testdata/vault already has ricket.yaml — init should fail
-	_, stderr, code := runRicket(t, nil, "init", vault)
-	if code == 0 {
-		t.Error("expected non-zero exit when ricket.yaml already exists")
-	}
-	if !strings.Contains(stderr, "already exists") {
-		t.Errorf("expected 'already exists' in stderr: %s", stderr)
-	}
-}
-
-func TestCLI_Init_ScaffoldsVault(t *testing.T) {
+// TestCLI_Init_ExistingVault verifies that init detects an existing Obsidian
+// vault (.obsidian/ present) and writes the MCP config with migration guidance.
+func TestCLI_Init_ExistingVault(t *testing.T) {
 	vaultDir := t.TempDir()
-	// Accept defaults for every prompt.
-	input := strings.Repeat("\n", 64)
+	// Simulate an existing Obsidian vault by creating the .obsidian folder.
+	if err := os.Mkdir(filepath.Join(vaultDir, ".obsidian"), 0o755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	workspace := t.TempDir()
 
-	_, stderr, code := runRicketWithInput(t, nil, input, "init", vaultDir)
+	_, stderr, code := runRicketWithInput(t, nil, "\n", "init", vaultDir,
+		"--vscode", "--vault-root", vaultDir,
+		"mcp", "init-vscode", workspace, "--vault-root", vaultDir)
+	// init --vscode writes .vscode/mcp.json and exits 0
+	_, stderr, code = runRicket(t, nil, "init", "--vscode", "--vault-root", vaultDir, vaultDir)
 	if code != 0 {
 		t.Fatalf("ricket init exited %d\nstderr: %s", code, stderr)
 	}
-
-	for _, p := range []string{
-		"ricket.yaml",
-		"Inbox",
-		"Archive",
-		"_templates",
-		"_templates/decision.md",
-		"_templates/concept.md",
-		"_templates/meeting.md",
-		"_templates/project.md",
-		"_templates/learning.md",
-		"_templates/person.md",
-		"Areas/Org1/decisions/MOC.md",
-		"Areas/Org1/concepts/MOC.md",
-		"Areas/Org1/people/MOC.md",
-		"Projects/Org1/MOC.md",
-		"Areas/Personal Development/MOC.md",
-	} {
-		if _, err := os.Stat(filepath.Join(vaultDir, filepath.FromSlash(p))); err != nil {
-			t.Errorf("expected %s to exist: %v", p, err)
-		}
+	if !strings.Contains(stderr, "Existing Obsidian vault detected") {
+		t.Errorf("expected existing-vault message in stderr: %s", stderr)
 	}
-
-	stdout, _, statusCode := runRicket(t, nil, "config", "validate", "--vault-root", vaultDir)
-	if statusCode != 0 {
-		t.Fatalf("config validate exited %d\nstdout: %s", statusCode, stdout)
+	if !strings.Contains(stderr, "migrat") {
+		t.Errorf("expected migration prompt in stderr: %s", stderr)
 	}
-	if !strings.Contains(stdout, "Vault configuration looks good.") {
-		t.Errorf("expected validation success output, got:\n%s", stdout)
+	mcpPath := filepath.Join(vaultDir, ".vscode", "mcp.json")
+	if _, err := os.Stat(mcpPath); err != nil {
+		t.Errorf("expected .vscode/mcp.json to be written: %v", err)
+	}
+}
+
+// TestCLI_Init_NewVault verifies that init on an empty directory writes the MCP
+// config and prints a new-vault setup prompt.
+func TestCLI_Init_NewVault(t *testing.T) {
+	vaultDir := t.TempDir()
+
+	_, stderr, code := runRicket(t, nil, "init", "--vscode", "--vault-root", vaultDir, vaultDir)
+	if code != 0 {
+		t.Fatalf("ricket init exited %d\nstderr: %s", code, stderr)
+	}
+	if strings.Contains(stderr, "Existing Obsidian vault detected") {
+		t.Error("should NOT report existing vault for empty dir")
+	}
+	if !strings.Contains(stderr, "set up") && !strings.Contains(stderr, "scratch") {
+		t.Errorf("expected new-vault prompt in stderr: %s", stderr)
+	}
+	mcpPath := filepath.Join(vaultDir, ".vscode", "mcp.json")
+	if _, err := os.Stat(mcpPath); err != nil {
+		t.Errorf("expected .vscode/mcp.json to be written: %v", err)
 	}
 }
 
@@ -318,31 +316,52 @@ func TestCLI_CompletionCommand(t *testing.T) {
 
 func TestCLI_ConfigScaffold(t *testing.T) {
 	vaultDir := t.TempDir()
-	input := strings.Repeat("\n", 64)
 
-	_, stderr, code := runRicketWithInput(t, nil, input, "init", vaultDir)
+	// Write a minimal ricket.yaml with a people category that has template=person.
+	yaml := `vault:
+  inbox: Inbox/
+  archive: Archive/
+  templates: _templates/
+categories:
+  - name: test-people
+    folder: Areas/Test/people/
+    template: person
+    tags: [person]
+    moc: Areas/Test/people/MOC.md
+`
+	if err := os.WriteFile(filepath.Join(vaultDir, "ricket.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write ricket.yaml: %v", err)
+	}
+
+	// First scaffold run creates folders, template, and MOC.
+	stdout, stderr, code := runRicket(t, nil, "config", "scaffold", "--vault-root", vaultDir)
 	if code != 0 {
-		t.Fatalf("ricket init exited %d\nstderr: %s", code, stderr)
+		t.Fatalf("first config scaffold exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
 	}
 
-	removeTargets := []string{
-		filepath.Join(vaultDir, "_templates", "person.md"),
-		filepath.Join(vaultDir, "Areas", "Org1", "people", "MOC.md"),
-	}
-	for _, target := range removeTargets {
-		if err := os.Remove(target); err != nil {
-			t.Fatalf("failed to remove %s: %v", target, err)
+	personTemplate := filepath.Join(vaultDir, "_templates", "person.md")
+	peoplesMOC := filepath.Join(vaultDir, "Areas", "Test", "people", "MOC.md")
+
+	for _, p := range []string{personTemplate, peoplesMOC} {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("expected scaffold to create %s: %v", p, err)
 		}
 	}
 
-	stdout, stderr, code := runRicket(t, nil, "config", "scaffold", "--vault-root", vaultDir)
-	if code != 0 {
-		t.Fatalf("config scaffold exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
+	// Remove the files, then re-scaffold to verify idempotent recreation.
+	for _, p := range []string{personTemplate, peoplesMOC} {
+		if err := os.Remove(p); err != nil {
+			t.Fatalf("remove %s: %v", p, err)
+		}
 	}
 
-	for _, target := range removeTargets {
-		if _, err := os.Stat(target); err != nil {
-			t.Fatalf("expected scaffold to recreate %s: %v", target, err)
+	stdout, stderr, code = runRicket(t, nil, "config", "scaffold", "--vault-root", vaultDir)
+	if code != 0 {
+		t.Fatalf("second config scaffold exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
+	}
+	for _, p := range []string{personTemplate, peoplesMOC} {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("expected scaffold to recreate %s: %v", p, err)
 		}
 	}
 }
@@ -523,8 +542,8 @@ func TestMCP_E2E(t *testing.T) {
 	if !ok {
 		t.Fatalf("tools/list result.tools: %T", listResult["tools"])
 	}
-	if len(tools) != 10 {
-		t.Errorf("expected 10 tools, got %d", len(tools))
+	if len(tools) != 12 {
+		t.Errorf("expected 12 tools, got %d", len(tools))
 	}
 	toolNames := make([]string, 0, len(tools))
 	for _, raw := range tools {

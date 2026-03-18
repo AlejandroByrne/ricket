@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,11 +11,16 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/AlejandroByrne/ricket/internal/config"
 	"github.com/AlejandroByrne/ricket/internal/vault"
 )
 
-// registerTools registers all ricket MCP tools on srv.
+// registerTools registers all ricket MCP tools on srv (normal mode).
 func registerTools(srv *mcpserver.MCPServer, s *RicketMCPServer) {
+	// Setup / migration tools — available in all modes
+	registerMigrationTools(srv, s)
+
+	// Vault operation tools — require a loaded config
 	srv.AddTool(toolListInbox(), handleVaultListInbox(s))
 	srv.AddTool(toolTriageInbox(), handleVaultTriageInbox(s))
 	srv.AddTool(toolReadNote(), handleVaultReadNote(s))
@@ -25,6 +31,12 @@ func registerTools(srv *mcpserver.MCPServer, s *RicketMCPServer) {
 	srv.AddTool(toolCreateNote(), handleVaultCreateNote(s))
 	srv.AddTool(toolUpdateNote(), handleVaultUpdateNote(s))
 	srv.AddTool(toolStatus(), handleVaultStatus(s))
+}
+
+// registerMigrationTools registers only the setup tools used before ricket.yaml exists.
+func registerMigrationTools(srv *mcpserver.MCPServer, s *RicketMCPServer) {
+	srv.AddTool(toolAnalyze(), handleVaultAnalyze(s))
+	srv.AddTool(toolWriteConfig(), handleVaultWriteConfig(s))
 }
 
 // ── Tool definitions ──────────────────────────────────────────────────────────
@@ -460,4 +472,124 @@ func extractTemplateFields(content string) []string {
 		}
 	}
 	return fields
+}
+
+// ── Setup / migration tools ───────────────────────────────────────────────────
+
+func toolAnalyze() mcplib.Tool {
+	return mcplib.NewTool("vault_analyze",
+		mcplib.WithDescription(`Analyze vault structure without requiring ricket.yaml. Scans folder tree, frontmatter tags, naming conventions, and templates to produce a complete picture of the vault. Returns inferred categories with confidence scores and reasoning strings. Use this as the first step of the migration or new-vault setup flow, then call vault_write_config with the agent-generated config.`),
+	)
+}
+
+func toolWriteConfig() mcplib.Tool {
+	return mcplib.NewTool("vault_write_config",
+		mcplib.WithDescription(`Write ricket.yaml and VAULT_GUIDE.md to the vault root. Requires overwrite:true if ricket.yaml already exists. Set scaffold:true to create any missing category folders, template stubs, and MOC files after writing. After this call succeeds, restart the MCP server to load the new config.`),
+		mcplib.WithString("config_yaml",
+			mcplib.Required(),
+			mcplib.Description("Full ricket.yaml content. May include YAML comments (# lines) explaining category reasoning. Must follow the ricket.yaml schema (vault, categories, mcp sections)."),
+		),
+		mcplib.WithString("guide_content",
+			mcplib.Required(),
+			mcplib.Description("Markdown content for VAULT_GUIDE.md — explains vault structure, naming conventions, tagging rules, and filing guidelines so AI agents understand this vault."),
+		),
+		mcplib.WithString("guide_path",
+			mcplib.Description(`Relative path for the guide file within the vault (default: "VAULT_GUIDE.md")`),
+		),
+		mcplib.WithBoolean("overwrite",
+			mcplib.Description("Allow overwriting an existing ricket.yaml (default: false). Required when ricket.yaml already exists."),
+		),
+		mcplib.WithBoolean("scaffold",
+			mcplib.Description("After writing ricket.yaml, create any missing category folders, template stub files, and MOC files (default: false). Recommended for new vaults."),
+		),
+	)
+}
+
+func handleVaultAnalyze(s *RicketMCPServer) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		analysis, err := vault.AnalyzeVaultRoot(s.vaultRoot)
+		if err != nil {
+			return mcplib.NewToolResultError(err.Error()), nil
+		}
+		out, _ := json.MarshalIndent(analysis, "", "  ")
+		return mcplib.NewToolResultText(string(out)), nil
+	}
+}
+
+func handleVaultWriteConfig(s *RicketMCPServer) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		configYAML, err := req.RequireString("config_yaml")
+		if err != nil {
+			return mcplib.NewToolResultError(err.Error()), nil
+		}
+		guideContent, err := req.RequireString("guide_content")
+		if err != nil {
+			return mcplib.NewToolResultError(err.Error()), nil
+		}
+
+		guidePath := req.GetString("guide_path", "VAULT_GUIDE.md")
+		overwrite := req.GetBool("overwrite", false)
+		scaffold := req.GetBool("scaffold", false)
+
+		if err := validateRelPath(guidePath); err != nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("invalid guide_path: %v", err)), nil
+		}
+
+		configPath := filepath.Join(s.vaultRoot, "ricket.yaml")
+		if _, statErr := os.Stat(configPath); statErr == nil && !overwrite {
+			return mcplib.NewToolResultError("ricket.yaml already exists — set overwrite:true to replace it"), nil
+		}
+
+		if err := os.WriteFile(configPath, []byte(configYAML), 0o644); err != nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("failed to write ricket.yaml: %v", err)), nil
+		}
+
+		guideAbsPath := filepath.Join(s.vaultRoot, filepath.FromSlash(guidePath))
+		if err := os.MkdirAll(filepath.Dir(guideAbsPath), 0o755); err != nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("failed to create guide directory: %v", err)), nil
+		}
+		if err := os.WriteFile(guideAbsPath, []byte(guideContent), 0o644); err != nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("failed to write %s: %v", guidePath, err)), nil
+		}
+
+		scaffolded := false
+		if scaffold {
+			cfg, loadErr := config.LoadConfig(s.vaultRoot)
+			if loadErr == nil {
+				if scaffoldErr := vault.ScaffoldVault(cfg); scaffoldErr != nil {
+					return mcplib.NewToolResultError(fmt.Sprintf("config written but scaffold failed: %v", scaffoldErr)), nil
+				}
+				scaffolded = true
+			}
+		}
+
+		type writeResult struct {
+			ConfigPath string `json:"configPath"`
+			GuidePath  string `json:"guidePath"`
+			Scaffolded bool   `json:"scaffolded"`
+			NextStep   string `json:"nextStep"`
+		}
+		out, _ := json.MarshalIndent(writeResult{
+			ConfigPath: "ricket.yaml",
+			GuidePath:  guidePath,
+			Scaffolded: scaffolded,
+			NextStep:   "Restart the MCP server (reload your editor window) to load the new config and enable all vault tools.",
+		}, "", "  ")
+		return mcplib.NewToolResultText(string(out)), nil
+	}
+}
+
+// validateRelPath rejects empty, absolute, and traversal paths for guide_path.
+func validateRelPath(p string) error {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return fmt.Errorf("path cannot be empty")
+	}
+	if filepath.IsAbs(filepath.FromSlash(p)) || strings.HasPrefix(p, "/") || strings.HasPrefix(p, "\\") {
+		return fmt.Errorf("path must be relative")
+	}
+	if strings.Contains(p, "..") {
+		return fmt.Errorf("path must not contain path traversal (..)")
+	}
+	return nil
 }
