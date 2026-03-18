@@ -13,6 +13,7 @@ import (
 type RicketConfig struct {
 	Vault      VaultConfig  `yaml:"vault"`
 	Categories []Category   `yaml:"categories"`
+	Sources    []Source     `yaml:"sources,omitempty"`
 	MCP        *MCPConfig   `yaml:"mcp,omitempty"`
 	// Resolved at load time — not in YAML
 	VaultRoot string `yaml:"-"`
@@ -24,6 +25,14 @@ type VaultConfig struct {
 	Inbox     string `yaml:"inbox"`
 	Archive   string `yaml:"archive"`
 	Templates string `yaml:"templates"`
+}
+
+// Source is an additional read-only reference directory that ricket can search.
+type Source struct {
+	Name string `yaml:"name"`
+	Path string `yaml:"path"`
+	// ResolvedPath is the absolute path, set at load time.
+	ResolvedPath string `yaml:"-"`
 }
 
 // Category defines a note category with its folder, template, tags, and MOC.
@@ -71,6 +80,10 @@ type rawConfig struct {
 		Signals  []string `yaml:"signals"`
 	} `yaml:"categories"`
 	MCP *MCPConfig `yaml:"mcp"`
+	Sources []struct {
+		Name string `yaml:"name"`
+		Path string `yaml:"path"`
+	} `yaml:"sources"`
 }
 
 // LoadConfig reads ricket.yaml from vaultRoot, validates it, and returns a RicketConfig.
@@ -150,6 +163,23 @@ func LoadConfig(vaultRoot string) (*RicketConfig, error) {
 		})
 	}
 
+	// Resolve additional sources
+	for _, s := range raw.Sources {
+		if s.Name == "" || s.Path == "" {
+			continue
+		}
+		absPath := s.Path
+		if !filepath.IsAbs(absPath) {
+			absPath = filepath.Join(resolvedRoot, absPath)
+		}
+		absPath = filepath.Clean(absPath)
+		cfg.Sources = append(cfg.Sources, Source{
+			Name:         s.Name,
+			Path:         s.Path,
+			ResolvedPath: absPath,
+		})
+	}
+
 	return cfg, nil
 }
 
@@ -162,6 +192,11 @@ func boolPtr(v bool) *bool {
 func WriteConfig(cfg *RicketConfig, vaultRoot string) error {
 	configPath := filepath.Join(vaultRoot, "ricket.yaml")
 
+	type outSource struct {
+		Name string `yaml:"name"`
+		Path string `yaml:"path"`
+	}
+
 	type outConfig struct {
 		Vault struct {
 			Root      string `yaml:"root,omitempty"`
@@ -169,8 +204,9 @@ func WriteConfig(cfg *RicketConfig, vaultRoot string) error {
 			Archive   string `yaml:"archive"`
 			Templates string `yaml:"templates"`
 		} `yaml:"vault"`
-		Categories []Category `yaml:"categories"`
-		MCP        *MCPConfig `yaml:"mcp,omitempty"`
+		Categories []Category  `yaml:"categories"`
+		Sources    []outSource `yaml:"sources,omitempty"`
+		MCP        *MCPConfig  `yaml:"mcp,omitempty"`
 	}
 
 	out := outConfig{}
@@ -179,6 +215,9 @@ func WriteConfig(cfg *RicketConfig, vaultRoot string) error {
 	out.Vault.Archive = cfg.Vault.Archive
 	out.Vault.Templates = cfg.Vault.Templates
 	out.Categories = cfg.Categories
+	for _, s := range cfg.Sources {
+		out.Sources = append(out.Sources, outSource{Name: s.Name, Path: s.Path})
+	}
 	if cfg.MCP != nil && (cfg.MCP.Name != "" || cfg.MCP.Version != "") {
 		out.MCP = cfg.MCP
 	}

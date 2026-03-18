@@ -31,6 +31,7 @@ func registerTools(srv *mcpserver.MCPServer, s *RicketMCPServer) {
 	srv.AddTool(toolCreateNote(), handleVaultCreateNote(s))
 	srv.AddTool(toolUpdateNote(), handleVaultUpdateNote(s))
 	srv.AddTool(toolStatus(), handleVaultStatus(s))
+	srv.AddTool(toolListSources(), handleVaultListSources(s))
 
 	// Prompts
 	registerPrompts(srv, s)
@@ -63,18 +64,18 @@ func toolTriageInbox() mcplib.Tool {
 
 func toolReadNote() mcplib.Tool {
 	return mcplib.NewTool("vault_read_note",
-		mcplib.WithDescription("Read a single note by its relative vault path. Returns path, name, frontmatter, content, tags, and wikilinks."),
+		mcplib.WithDescription("Read a single note by its relative vault path. Returns path, name, frontmatter, content, tags, and wikilinks. For notes from reference sources, use @source-name/path format."),
 		mcplib.WithReadOnlyHintAnnotation(true),
 		mcplib.WithString("path",
 			mcplib.Required(),
-			mcplib.Description("Relative path of the note within the vault (e.g. 'Inbox/my-note.md')"),
+			mcplib.Description("Relative path of the note within the vault (e.g. 'Inbox/my-note.md') or a source reference (e.g. '@standards/adr-001.md')"),
 		),
 	)
 }
 
 func toolSearch() mcplib.Tool {
 	t := mcplib.NewTool("vault_search",
-		mcplib.WithDescription("Search notes by folder, tags, and/or full-text query. All filters are combined (AND logic)."),
+		mcplib.WithDescription("Search notes by folder, tags, and/or full-text query. All filters are combined (AND logic). When a text query is provided, also searches configured reference sources and returns results with a 'source' field."),
 		mcplib.WithReadOnlyHintAnnotation(true),
 		mcplib.WithString("folder",
 			mcplib.Description("Restrict search to this folder (relative path, optional)"),
@@ -201,6 +202,13 @@ func toolStatus() mcplib.Tool {
 	)
 }
 
+func toolListSources() mcplib.Tool {
+	return mcplib.NewTool("vault_list_sources",
+		mcplib.WithDescription("List configured reference sources. Each source is a read-only directory whose notes appear in search results and can be read with @source-name/path."),
+		mcplib.WithReadOnlyHintAnnotation(true),
+	)
+}
+
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
 func handleVaultListInbox(s *RicketMCPServer) mcpserver.ToolHandlerFunc {
@@ -248,7 +256,20 @@ func handleVaultReadNote(s *RicketMCPServer) mcpserver.ToolHandlerFunc {
 			return mcplib.NewToolResultError(err.Error()), nil
 		}
 
-		note, err := s.vault.ReadNote(path)
+		var note vault.VaultNote
+		if strings.HasPrefix(path, "@") {
+			// Source reference: @source-name/relative/path.md
+			rest := strings.TrimPrefix(path, "@")
+			idx := strings.Index(rest, "/")
+			if idx < 0 {
+				return mcplib.NewToolResultError("invalid source path: expected @source-name/path"), nil
+			}
+			srcName := rest[:idx]
+			srcPath := rest[idx+1:]
+			note, err = s.vault.ReadSourceNote(srcName, srcPath)
+		} else {
+			note, err = s.vault.ReadNote(path)
+		}
 		if err != nil {
 			return mcplib.NewToolResultError(err.Error()), nil
 		}
@@ -295,6 +316,7 @@ func handleVaultSearch(s *RicketMCPServer) mcpserver.ToolHandlerFunc {
 			Name    string   `json:"name"`
 			Tags    []string `json:"tags"`
 			Preview string   `json:"preview"`
+			Source  string   `json:"source,omitempty"`
 		}
 		result := make([]item, 0, len(notes))
 		for _, n := range notes {
@@ -308,6 +330,23 @@ func handleVaultSearch(s *RicketMCPServer) mcpserver.ToolHandlerFunc {
 				Tags:    vault.GetTags(n.Parsed),
 				Preview: preview,
 			})
+		}
+
+		// Also search reference sources when a text query is provided
+		if query != "" {
+			for _, sn := range s.vault.SearchSources(query) {
+				preview := sn.Parsed.Content
+				if len([]rune(preview)) > 200 {
+					preview = string([]rune(preview)[:200])
+				}
+				result = append(result, item{
+					Path:    sn.VaultNote.Path,
+					Name:    sn.Name,
+					Tags:    vault.GetTags(sn.Parsed),
+					Preview: preview,
+					Source:  sn.Source,
+				})
+			}
 		}
 
 		out, _ := json.MarshalIndent(result, "", "  ")
@@ -472,6 +511,27 @@ func handleVaultStatus(s *RicketMCPServer) mcpserver.ToolHandlerFunc {
 		}
 
 		out, _ := json.MarshalIndent(r, "", "  ")
+		return mcplib.NewToolResultText(string(out)), nil
+	}
+}
+
+func handleVaultListSources(s *RicketMCPServer) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		type sourceInfo struct {
+			Name      string `json:"name"`
+			Path      string `json:"path"`
+			Available bool   `json:"available"`
+		}
+		var result []sourceInfo
+		for _, src := range s.cfg.Sources {
+			_, err := os.Stat(src.ResolvedPath)
+			result = append(result, sourceInfo{
+				Name:      src.Name,
+				Path:      src.ResolvedPath,
+				Available: err == nil,
+			})
+		}
+		out, _ := json.MarshalIndent(result, "", "  ")
 		return mcplib.NewToolResultText(string(out)), nil
 	}
 }

@@ -57,6 +57,13 @@ type Vault struct {
 	mu         sync.RWMutex // protects indexDirty
 }
 
+// SourceNote is a note from a read-only reference source.
+type SourceNote struct {
+	Source string // source name from config
+	Path   string // relative path within the source directory
+	VaultNote
+}
+
 // New creates a Vault for the given config.
 // Initialises the SQLite index and git audit trail (both best-effort; failures
 // result in degraded-mode operation, not a fatal error).
@@ -339,6 +346,94 @@ func (v *Vault) searchWalk(opts SearchOptions) ([]VaultNote, error) {
 	})
 
 	return results, err
+}
+
+// SearchSources searches all configured read-only sources for notes matching
+// the query string. Returns SourceNote results with the source name attached.
+func (v *Vault) SearchSources(query string) []SourceNote {
+	if len(v.cfg.Sources) == 0 || query == "" {
+		return nil
+	}
+	q := strings.ToLower(query)
+	var results []SourceNote
+
+	for _, src := range v.cfg.Sources {
+		root := src.ResolvedPath
+		if root == "" {
+			continue
+		}
+		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				if d != nil && d.IsDir() && strings.HasPrefix(d.Name(), ".") {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
+				return nil
+			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return nil
+			}
+			rel = filepath.ToSlash(rel)
+
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil
+			}
+			content := string(data)
+			parsed := ParseNote(content)
+			title, _ := parsed.Frontmatter["title"].(string)
+			combined := strings.ToLower(title + " " + parsed.Content + " " + rel)
+			if !strings.Contains(combined, q) {
+				return nil
+			}
+			name := strings.TrimSuffix(filepath.Base(rel), ".md")
+			results = append(results, SourceNote{
+				Source: src.Name,
+				Path:   rel,
+				VaultNote: VaultNote{
+					Path:         "@" + src.Name + "/" + rel,
+					AbsolutePath: path,
+					Parsed:       parsed,
+					Name:         name,
+				},
+			})
+			return nil
+		})
+	}
+	return results
+}
+
+// ReadSourceNote reads a note from a named source by relative path.
+func (v *Vault) ReadSourceNote(sourceName, relPath string) (VaultNote, error) {
+	for _, src := range v.cfg.Sources {
+		if src.Name != sourceName {
+			continue
+		}
+		root := src.ResolvedPath
+		if root == "" {
+			return VaultNote{}, fmt.Errorf("source %q has no resolved path", sourceName)
+		}
+		clean := filepath.Clean(filepath.Join(root, filepath.FromSlash(relPath)))
+		if !strings.HasPrefix(clean, filepath.Clean(root)+string(os.PathSeparator)) && clean != filepath.Clean(root) {
+			return VaultNote{}, fmt.Errorf("path %q escapes source root", relPath)
+		}
+		data, err := os.ReadFile(clean)
+		if err != nil {
+			return VaultNote{}, fmt.Errorf("read source note: %w", err)
+		}
+		parsed := ParseNote(string(data))
+		name := strings.TrimSuffix(filepath.Base(relPath), ".md")
+		return VaultNote{
+			Path:         "@" + sourceName + "/" + filepath.ToSlash(relPath),
+			AbsolutePath: clean,
+			Parsed:       parsed,
+			Name:         name,
+		}, nil
+	}
+	return VaultNote{}, fmt.Errorf("source %q not found", sourceName)
 }
 
 // GetCategories returns all configured categories.

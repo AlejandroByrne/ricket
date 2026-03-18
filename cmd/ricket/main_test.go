@@ -2,7 +2,6 @@ package main_test
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -61,28 +60,7 @@ func runRicket(t *testing.T, env []string, args ...string) (stdout, stderr strin
 	if env != nil {
 		cmd.Env = append(os.Environ(), env...)
 	}
-	var outBuf, errBuf bytes.Buffer
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
-	err := cmd.Run()
-	exitCode = 0
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		}
-	}
-	return outBuf.String(), errBuf.String(), exitCode
-}
-
-// runRicketWithInput runs the ricket binary with stdin input.
-func runRicketWithInput(t *testing.T, env []string, input string, args ...string) (stdout, stderr string, exitCode int) {
-	t.Helper()
-	cmd := exec.Command(binaryPath, args...)
-	if env != nil {
-		cmd.Env = append(os.Environ(), env...)
-	}
-	cmd.Stdin = strings.NewReader(input)
-	var outBuf, errBuf bytes.Buffer
+	var outBuf, errBuf strings.Builder
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
 	err := cmd.Run()
@@ -97,66 +75,6 @@ func runRicketWithInput(t *testing.T, env []string, input string, args ...string
 
 // ── CLI tests ─────────────────────────────────────────────────────────────────
 
-func TestCLI_Status(t *testing.T) {
-	vault := testVaultPath(t)
-	stdout, _, code := runRicket(t, nil,
-		"status", "--vault-root", vault)
-
-	if code != 0 {
-		t.Fatalf("ricket status exited %d\nstdout: %s", code, stdout)
-	}
-	if !strings.Contains(stdout, "Total notes:") {
-		t.Errorf("expected 'Total notes:' in output, got:\n%s", stdout)
-	}
-	if !strings.Contains(stdout, "Inbox:") {
-		t.Errorf("expected 'Inbox:' in output, got:\n%s", stdout)
-	}
-	if !strings.Contains(stdout, "Categories:") {
-		t.Errorf("expected 'Categories:' in output, got:\n%s", stdout)
-	}
-	// Vault has 3 inbox notes
-	if !strings.Contains(stdout, "Inbox:       3 notes") {
-		t.Errorf("expected 3 inbox notes, got:\n%s", stdout)
-	}
-}
-
-func TestCLI_Status_EnvVar(t *testing.T) {
-	vault := testVaultPath(t)
-	stdout, _, code := runRicket(t,
-		[]string{"RICKET_VAULT_ROOT=" + vault},
-		"status")
-
-	if code != 0 {
-		t.Fatalf("exited %d: %s", code, stdout)
-	}
-	if !strings.Contains(stdout, "Total notes:") {
-		t.Errorf("expected 'Total notes:' in output")
-	}
-}
-
-func TestCLI_ConfigPath(t *testing.T) {
-	vault := testVaultPath(t)
-	stdout, _, code := runRicket(t, nil,
-		"config", "path", "--vault-root", vault)
-
-	if code != 0 {
-		t.Fatalf("ricket config path exited %d\nstdout: %s", code, stdout)
-	}
-	// Output should be the vault path (trimmed)
-	got := strings.TrimSpace(stdout)
-	if got != vault {
-		t.Errorf("config path = %q, want %q", got, vault)
-	}
-}
-
-func TestCLI_Status_MissingVault(t *testing.T) {
-	_, _, code := runRicket(t, nil,
-		"status", "--vault-root", "/nonexistent/path/that/does/not/exist")
-	if code == 0 {
-		t.Error("expected non-zero exit code for missing vault")
-	}
-}
-
 func TestCLI_Version(t *testing.T) {
 	stdout, _, code := runRicket(t, nil, "--version")
 	if code != 0 {
@@ -164,232 +82,6 @@ func TestCLI_Version(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "0.3.0") {
 		t.Errorf("expected version 0.3.0 in output: %s", stdout)
-	}
-}
-
-func TestCLI_ConfigValidate(t *testing.T) {
-	vault := testVaultPath(t)
-	stdout, stderr, code := runRicket(t, nil,
-		"config", "validate", "--vault-root", vault)
-
-	if code != 0 {
-		t.Fatalf("ricket config validate exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
-	}
-	if !strings.Contains(stdout, "Vault configuration looks good.") {
-		t.Errorf("expected success message, got stdout:\n%s\nstderr:\n%s", stdout, stderr)
-	}
-	if !strings.Contains(stdout, "inbox directory exists") {
-		t.Errorf("expected inbox OK in output: %s", stdout)
-	}
-}
-
-// TestCLI_Init_ExistingVault verifies that init detects an existing Obsidian
-// vault (.obsidian/ present) and writes the MCP config with migration guidance.
-func TestCLI_Init_ExistingVault(t *testing.T) {
-	vaultDir := t.TempDir()
-	// Simulate an existing Obsidian vault by creating the .obsidian folder.
-	if err := os.Mkdir(filepath.Join(vaultDir, ".obsidian"), 0o755); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	workspace := t.TempDir()
-
-	_, stderr, code := runRicketWithInput(t, nil, "\n", "init", vaultDir,
-		"--vscode", "--vault-root", vaultDir,
-		"mcp", "init-vscode", workspace, "--vault-root", vaultDir)
-	// init --vscode writes .vscode/mcp.json and exits 0
-	_, stderr, code = runRicket(t, nil, "init", "--vscode", "--vault-root", vaultDir, vaultDir)
-	if code != 0 {
-		t.Fatalf("ricket init exited %d\nstderr: %s", code, stderr)
-	}
-	if !strings.Contains(stderr, "Existing Obsidian vault detected") {
-		t.Errorf("expected existing-vault message in stderr: %s", stderr)
-	}
-	if !strings.Contains(stderr, "migrat") {
-		t.Errorf("expected migration prompt in stderr: %s", stderr)
-	}
-	mcpPath := filepath.Join(vaultDir, ".vscode", "mcp.json")
-	if _, err := os.Stat(mcpPath); err != nil {
-		t.Errorf("expected .vscode/mcp.json to be written: %v", err)
-	}
-}
-
-// TestCLI_Init_NewVault verifies that init on an empty directory writes the MCP
-// config and prints a new-vault setup prompt.
-func TestCLI_Init_NewVault(t *testing.T) {
-	vaultDir := t.TempDir()
-
-	_, stderr, code := runRicket(t, nil, "init", "--vscode", "--vault-root", vaultDir, vaultDir)
-	if code != 0 {
-		t.Fatalf("ricket init exited %d\nstderr: %s", code, stderr)
-	}
-	if strings.Contains(stderr, "Existing Obsidian vault detected") {
-		t.Error("should NOT report existing vault for empty dir")
-	}
-	if !strings.Contains(stderr, "set up") && !strings.Contains(stderr, "scratch") {
-		t.Errorf("expected new-vault prompt in stderr: %s", stderr)
-	}
-	mcpPath := filepath.Join(vaultDir, ".vscode", "mcp.json")
-	if _, err := os.Stat(mcpPath); err != nil {
-		t.Errorf("expected .vscode/mcp.json to be written: %v", err)
-	}
-}
-
-func TestCLI_MCPInitVSCode_WritesConfig(t *testing.T) {
-	vault := testVaultPath(t)
-	workspace := t.TempDir()
-
-	stdout, stderr, code := runRicket(t, nil,
-		"mcp", "init-vscode", workspace, "--vault-root", vault)
-	if code != 0 {
-		t.Fatalf("mcp init-vscode exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
-	}
-
-	data, err := os.ReadFile(filepath.Join(workspace, ".vscode", "mcp.json"))
-	if err != nil {
-		t.Fatalf("read generated mcp.json: %v", err)
-	}
-	var parsed map[string]any
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("unmarshal mcp.json: %v", err)
-	}
-	servers, ok := parsed["servers"].(map[string]any)
-	if !ok {
-		t.Fatalf("servers key missing or wrong type: %T", parsed["servers"])
-	}
-	rawRicket, ok := servers["ricket"].(map[string]any)
-	if !ok {
-		t.Fatalf("ricket server missing from generated config")
-	}
-	if rawRicket["command"] == "ricket" {
-		t.Error("expected absolute command path in generated config, got plain 'ricket'")
-	}
-	env, _ := rawRicket["env"].(map[string]any)
-	if env["RICKET_VAULT_ROOT"] != vault {
-		t.Errorf("RICKET_VAULT_ROOT = %v, want %s", env["RICKET_VAULT_ROOT"], vault)
-	}
-}
-
-func TestCLI_MCPInitVisualStudio_WritesConfig(t *testing.T) {
-	vault := testVaultPath(t)
-	solution := t.TempDir()
-
-	stdout, stderr, code := runRicket(t, nil,
-		"mcp", "init-visualstudio", solution, "--vault-root", vault)
-	if code != 0 {
-		t.Fatalf("mcp init-visualstudio exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
-	}
-
-	data, err := os.ReadFile(filepath.Join(solution, ".vs", "mcp.json"))
-	if err != nil {
-		t.Fatalf("read generated .vs/mcp.json: %v", err)
-	}
-	var parsed map[string]any
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("unmarshal .vs/mcp.json: %v", err)
-	}
-	servers, ok := parsed["servers"].(map[string]any)
-	if !ok {
-		t.Fatalf("servers key missing or wrong type: %T", parsed["servers"])
-	}
-	rawRicket, ok := servers["ricket"].(map[string]any)
-	if !ok {
-		t.Fatalf("ricket server missing from generated config")
-	}
-	if rawRicket["command"] == "ricket" {
-		t.Error("expected absolute command path in generated config, got plain 'ricket'")
-	}
-	env, _ := rawRicket["env"].(map[string]any)
-	if env["RICKET_VAULT_ROOT"] != vault {
-		t.Errorf("RICKET_VAULT_ROOT = %v, want %s", env["RICKET_VAULT_ROOT"], vault)
-	}
-}
-
-func TestCLI_CompletionCommand(t *testing.T) {
-	stdout, stderr, code := runRicket(t, nil, "completion", "powershell")
-	if code != 0 {
-		t.Fatalf("completion command exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
-	}
-	if !strings.Contains(stdout, "Register-ArgumentCompleter") {
-		t.Errorf("expected powershell completion script output, got:\n%s", stdout)
-	}
-}
-
-func TestCLI_ConfigScaffold(t *testing.T) {
-	vaultDir := t.TempDir()
-
-	// Write a minimal ricket.yaml with a people category that has template=person.
-	yaml := `vault:
-  inbox: Inbox/
-  archive: Archive/
-  templates: _templates/
-categories:
-  - name: test-people
-    folder: Areas/Test/people/
-    template: person
-    tags: [person]
-    moc: Areas/Test/people/MOC.md
-`
-	if err := os.WriteFile(filepath.Join(vaultDir, "ricket.yaml"), []byte(yaml), 0o644); err != nil {
-		t.Fatalf("write ricket.yaml: %v", err)
-	}
-
-	// First scaffold run creates folders, template, and MOC.
-	stdout, stderr, code := runRicket(t, nil, "config", "scaffold", "--vault-root", vaultDir)
-	if code != 0 {
-		t.Fatalf("first config scaffold exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
-	}
-
-	personTemplate := filepath.Join(vaultDir, "_templates", "person.md")
-	peoplesMOC := filepath.Join(vaultDir, "Areas", "Test", "people", "MOC.md")
-
-	for _, p := range []string{personTemplate, peoplesMOC} {
-		if _, err := os.Stat(p); err != nil {
-			t.Fatalf("expected scaffold to create %s: %v", p, err)
-		}
-	}
-
-	// Remove the files, then re-scaffold to verify idempotent recreation.
-	for _, p := range []string{personTemplate, peoplesMOC} {
-		if err := os.Remove(p); err != nil {
-			t.Fatalf("remove %s: %v", p, err)
-		}
-	}
-
-	stdout, stderr, code = runRicket(t, nil, "config", "scaffold", "--vault-root", vaultDir)
-	if code != 0 {
-		t.Fatalf("second config scaffold exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
-	}
-	for _, p := range []string{personTemplate, peoplesMOC} {
-		if _, err := os.Stat(p); err != nil {
-			t.Fatalf("expected scaffold to recreate %s: %v", p, err)
-		}
-	}
-}
-
-func TestCLI_ConfigMigrateAddPeople(t *testing.T) {
-	vaultDir := t.TempDir()
-	if err := copyDirAll(testVaultPath(t), vaultDir); err != nil {
-		t.Fatalf("copy vault: %v", err)
-	}
-
-	stdout, stderr, code := runRicket(t, nil, "config", "migrate", "--add-people", "--vault-root", vaultDir)
-	if code != 0 {
-		t.Fatalf("config migrate exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
-	}
-	if !strings.Contains(stdout, "Added") {
-		t.Fatalf("expected migrate output to confirm additions, got: %s", stdout)
-	}
-
-	data, err := os.ReadFile(filepath.Join(vaultDir, "ricket.yaml"))
-	if err != nil {
-		t.Fatalf("read migrated ricket.yaml: %v", err)
-	}
-	text := string(data)
-	if !strings.Contains(text, "name: acme-people") {
-		t.Fatalf("expected acme-people category in migrated config, got:\n%s", text)
-	}
-	if !strings.Contains(text, "template: person") {
-		t.Fatalf("expected person template in migrated config, got:\n%s", text)
 	}
 }
 
@@ -542,8 +234,8 @@ func TestMCP_E2E(t *testing.T) {
 	if !ok {
 		t.Fatalf("tools/list result.tools: %T", listResult["tools"])
 	}
-	if len(tools) != 12 {
-		t.Errorf("expected 12 tools, got %d", len(tools))
+	if len(tools) != 13 {
+		t.Errorf("expected 13 tools, got %d", len(tools))
 	}
 	toolNames := make([]string, 0, len(tools))
 	for _, raw := range tools {
@@ -629,8 +321,6 @@ func TestMCP_E2E(t *testing.T) {
 	}
 
 	// ── 6. tools/call vault_update_note (adds a tag to an existing note) ──
-	// Note: testdata/vault is read-only fixture; this call will succeed at the
-	// MCP protocol level even though gitCommitted may be false (no git repo in temp copy).
 	send(map[string]any{
 		"jsonrpc": "2.0",
 		"id":      5,

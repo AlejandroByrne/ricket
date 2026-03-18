@@ -1,0 +1,53 @@
+{
+  "name": "ricket",
+  "displayName": "Ricket",
+  "description": "Vault-powered context engine for AI coding agents — bridges Obsidian vaults with AI assistants via MCP.",
+  "version": "0.3.0",
+  "publisher": "AlejandroByrne",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AlejandroByrne/ricket"
+  },
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "mcp",
+    "obsidian",
+    "vault",
+    "ai",
+    "copilot",
+    "context"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Ricket",
+      "properties": {
+        "ricket.vaultRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to your Obsidian vault root. If empty, ricket will auto-resolve (env var → config file → workspace folder)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.96.0",
+    "typescript": "^5.4.0"
+  }
+}
