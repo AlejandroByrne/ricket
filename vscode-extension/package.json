@@ -4,6 +4,7 @@
   "description": "Vault-powered context engine for AI coding agents — bridges Obsidian vaults with AI assistants via MCP.",
   "version": "0.3.0",
   "publisher": "AlejandroByrne-fcbt",
+  "icon": "icon.png",
   "license": "MIT",
   "repository": {
     "type": "git",
