@@ -22,11 +22,28 @@ Ricket makes **zero LLM API calls**. It is pure plumbing — the tool the LLM ca
 
 ---
 
+## How it works
+
+Setup and ongoing use are both entirely agent-driven. There is no interactive CLI wizard.
+
+```
+1. ricket init --vscode /path/to/vault   ← one CLI command, wires up MCP
+2. Open agent chat, send the first prompt ← agent takes it from here
+3. Dump notes into Inbox/, ask agent to triage ← the daily workflow
+```
+
+**New vault** — agent calls `vault_analyze`, inspects the empty directory, generates a `ricket.yaml` tailored to your intended structure, scaffolds folders and templates, and writes a `VAULT_GUIDE.md` that teaches future sessions how your vault is organized.
+
+**Existing Obsidian vault** — agent calls `vault_analyze`, reads your folder tree, tags, naming patterns, and templates, then proposes a `ricket.yaml` that maps your actual structure into ricket categories. No data is moved; only config is written.
+
+After `ricket.yaml` exists, the server restarts into full mode and all triage tools become available.
+
+---
+
 ## Requirements
 
 - Go 1.22+ (for building from source)
-- An Obsidian vault organised with [PARA](https://fortelabs.com/blog/para/) or similar
-- Recommended Obsidian plugins: **Templater**, **Dataview**, **Obsidian Git**, **Tag Wrangler**, **Omnisearch**
+- An AI assistant with MCP support: Claude Code, GitHub Copilot (VS Code), or GitHub Copilot (Visual Studio)
 
 ---
 
@@ -48,22 +65,36 @@ make build          # → bin/ricket
 
 ## Setup
 
-### 1. Initialise your vault
+### 1. Wire up your agent
+
+Run `ricket init` from inside your vault directory (existing or new). Pass a flag for your preferred agent:
 
 ```bash
-ricket init /path/to/your/obsidian-vault
+cd /path/to/your/obsidian-vault
+
+ricket init --vscode          # GitHub Copilot in VS Code  → .vscode/mcp.json
+ricket init --visualstudio    # GitHub Copilot in Visual Studio → .vs/mcp.json
+ricket init --claude-code     # Claude Code → ~/.claude/mcp.json (merged)
+ricket init --all             # all three at once
 ```
 
-This runs an interactive wizard that asks about your organisations, note categories, and inbox habits, then writes `ricket.yaml` and offers to set the vault as your default.
+ricket detects whether a `.obsidian/` folder is present and prints the right first prompt for your agent.
 
-`ricket init` now also scaffolds your vault structure on first run:
-- Creates vault folders (`Inbox/`, `Archive/`, `_templates/` by default)
-- Creates each configured category folder
-- Creates missing category templates in `_templates/`
-- Creates missing category MOC files
-- Optionally writes `.vscode/mcp.json` in the selected vault for GitHub Copilot
+### 2. Open your agent and send the first prompt
 
-### 2. Verify
+**Existing Obsidian vault:**
+```
+Run vault_analyze and walk me through migrating my existing vault to ricket.
+```
+
+**New vault:**
+```
+Run vault_analyze and help me set up a new ricket vault from scratch.
+```
+
+The agent inspects your vault, proposes a config, and calls `vault_write_config` to write `ricket.yaml` and `VAULT_GUIDE.md`. Once written, restart the MCP server (reload your IDE window) — the full tool set is now available.
+
+### 3. Verify
 
 ```bash
 ricket status
@@ -74,11 +105,6 @@ Vault:       /Users/alice/obsidian-vault
 Total notes: 847
 Inbox:       3 notes
 Categories:  8
-
-Inbox:
-  - Inbox/2026-03-17-sync.md  [meeting, acme]
-  - Inbox/raw-capture.md
-  - Inbox/learning-rust.md    [learning]
 ```
 
 ---
@@ -98,8 +124,6 @@ Set the default once:
 
 ```bash
 ricket config set-default /path/to/vault
-# or
-ricket init  # wizard offers to set it at the end
 ```
 
 Validate your vault configuration at any time:
@@ -108,92 +132,18 @@ Validate your vault configuration at any time:
 ricket config validate --vault-root /path/to/vault
 ```
 
-This checks that all required directories exist and that every category's template and MOC file are in place.
-
----
-
-## Adding to Claude Code
-
-Add to `~/.claude/mcp.json` (global) or `.claude/mcp.json` (project):
-
-```json
-{
-  "mcpServers": {
-    "ricket": {
-      "command": "ricket",
-      "args": ["serve"],
-      "env": {
-        "RICKET_VAULT_ROOT": "/absolute/path/to/vault"
-      }
-    }
-  }
-}
-```
-
-If you've set a default vault via `ricket config set-default`, you can omit the env var:
-
-```json
-{
-  "mcpServers": {
-    "ricket": {
-      "command": "ricket",
-      "args": ["serve"]
-    }
-  }
-}
-```
-
----
-
-## Adding to GitHub Copilot (VS Code)
-
-Recommended: generate it automatically:
-
-```bash
-ricket mcp init-vscode /path/to/your/code-workspace --vault-root /path/to/vault
-```
-
-This writes `.vscode/mcp.json` with an absolute `command` path, which avoids common VS Code errors like `spawn ricket ENOENT` when `ricket` is not on PATH in the extension host process.
-
-Manual config (if needed):
-
-```json
-{
-  "servers": {
-    "ricket": {
-      "type": "stdio",
-      "command": "ricket",
-      "args": ["serve"],
-      "env": {
-        "RICKET_VAULT_ROOT": "/absolute/path/to/vault"
-      }
-    }
-  }
-}
-```
-
-If you see `spawn ricket ENOENT`:
-- Run `ricket mcp init-vscode ...` so the config uses an absolute command path.
-- Or replace `"command": "ricket"` with the full path to your binary (for example, `"C:/Users/alice/go/bin/ricket.exe"` on Windows).
-- Verify the binary exists with `ricket --version` in your terminal.
-
----
-
-## Adding to GitHub Copilot (Visual Studio)
-
-Generate a solution-local MCP config:
-
-```bash
-ricket mcp init-visualstudio /path/to/your/solution --vault-root /path/to/vault
-```
-
-This writes `.vs/mcp.json` with an absolute `command` path and `RICKET_VAULT_ROOT` environment variable.
-
-The generated server definition matches the same stdio MCP shape used for VS Code (`type`, `command`, `args`, `env`). Feature parity in the chat UI is determined by the Visual Studio Copilot build/channel you are using.
-
 ---
 
 ## MCP tools reference
+
+### Migration tools (always available, including before `ricket.yaml` exists)
+
+| Tool | Description |
+|------|-------------|
+| `vault_analyze` | Inspect vault structure — folder tree, tag frequency, naming patterns, templates, MOC files, and inferred categories with confidence scores. Safe to call on any directory. |
+| `vault_write_config` | Write `ricket.yaml` and `VAULT_GUIDE.md` to vault root. Accepts raw YAML config and guide markdown. Pass `scaffold: true` to also create missing folders and template stubs. |
+
+### Triage and filing tools (available after `ricket.yaml` exists)
 
 | Tool | Description |
 |------|-------------|
@@ -208,6 +158,20 @@ The generated server definition matches the same stdio MCP shape used for VS Cod
 | `vault_update_note` | Update an existing note's content, tags, and/or links in-place |
 | `vault_status` | Inbox count, total notes, category count |
 
+### `vault_write_config` parameters
+
+```json
+{
+  "config_yaml": "vault:\n  inbox: Inbox/\n...",
+  "guide_content": "# VAULT_GUIDE\n...",
+  "guide_path": "VAULT_GUIDE.md",
+  "overwrite": false,
+  "scaffold": true
+}
+```
+
+`scaffold: true` calls `ricket config scaffold` internally — creates missing folders, template stubs, and MOC files based on the config just written.
+
 ### `vault_search` parameters
 
 ```json
@@ -220,18 +184,13 @@ The generated server definition matches the same stdio MCP shape used for VS Cod
 
 All filters are **AND**-combined. Uses SQLite for tag/content queries; filesystem walk otherwise.
 
-### `vault_update_note` parameters
+### `vault_triage_inbox` workflow
 
-```json
-{
-  "path": "Areas/Engineering/decisions/use-sqlite-for-index.md",
-  "content": "# Revised decision\n\nUpdated rationale...",
-  "tags": ["reviewed", "stable"],
-  "links": ["observability-strategy"]
-}
-```
+`vault_triage_inbox` is the triage planning tool. It returns:
+- `proposals`: deterministic suggestions for filing Inbox notes
+- `unresolved`: notes with low confidence or no category signal match
 
-At least one of `content`, `tags`, or `links` must be provided. Tags are additive (merged with existing tags, deduplicated). Returns `{ path, gitCommitted }`.
+Each proposal includes `needsApproval: true`, so your agent should ask for user approval before executing the suggested moves with `vault_file_note`.
 
 ### `vault_file_note` parameters
 
@@ -248,19 +207,22 @@ At least one of `content`, `tags`, or `links` must be provided. Tags are additiv
 
 Returns `{ destination, gitCommitMessage, gitCommitted }`. If the vault is a git repository, ricket auto-commits the change.
 
-### `vault_triage_inbox` workflow
+### `vault_update_note` parameters
 
-`vault_triage_inbox` is the triage planning tool. It returns:
-- `proposals`: deterministic suggestions for filing Inbox notes
-- `unresolved`: notes with low confidence or no category signal match
+```json
+{
+  "path": "Areas/Engineering/decisions/use-sqlite-for-index.md",
+  "content": "# Revised decision\n\nUpdated rationale...",
+  "tags": ["reviewed", "stable"],
+  "links": ["observability-strategy"]
+}
+```
 
-Each proposal includes `needsApproval: true`, so your MCP client/agent should ask for user approval before executing the suggested moves with `vault_file_note`.
+At least one of `content`, `tags`, or `links` must be provided. Tags are additive (merged with existing tags, deduplicated). Returns `{ path, gitCommitted }`.
 
 ---
 
 ## Shell completion
-
-Generate completion scripts:
 
 ```bash
 ricket completion bash
@@ -268,8 +230,6 @@ ricket completion zsh
 ricket completion fish
 ricket completion powershell
 ```
-
-`ricket completion` only outputs shell completion scripts for the CLI itself; it does not configure MCP clients.
 
 ---
 
@@ -314,7 +274,7 @@ ricket: filed meeting-notes.md → Areas/Engineering/meetings/2026-03-17-sprint-
 ricket: created Areas/Engineering/concepts/opentelemetry.md
 ```
 
-Filter AI-assisted vault operations:
+Filter ricket vault operations:
 
 ```bash
 git log --oneline --grep="ricket:"
@@ -358,8 +318,10 @@ make clean    # remove bin/ and .ricket/
 ```
 cmd/ricket/          CLI (init, serve, status, config)
 internal/
-  config/            ricket.yaml load/generate/write
+  config/            ricket.yaml load/write
   vault/             core vault operations
+    analyze.go       VaultAnalysis — folder tree, tags, patterns, inferred categories
+    scaffold.go      ScaffoldVault — create missing folders, templates, MOC files
     frontmatter.go   YAML frontmatter parse/serialize
     template.go      Templater placeholder substitution
     moc.go           Map-of-Content append
@@ -367,7 +329,7 @@ internal/
     vault.go         Vault struct — all operations
   git/               Git audit trail
   mcp/               MCP server (mark3labs/mcp-go)
-    server.go        Server init and stdio serve
+    server.go        Server init; migration mode when ricket.yaml absent
     tools.go         MCP tool definitions and handlers
 testdata/vault/      Realistic test vault fixture
 ```
