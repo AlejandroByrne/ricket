@@ -29,13 +29,19 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "commands": [
+      {
+        "command": "ricket.selectVaultRoot",
+        "title": "Ricket: Select Vault Folder"
+      }
+    ],
     "configuration": {
       "title": "Ricket",
       "properties": {
         "ricket.vaultRoot": {
           "type": "string",
           "default": "",
-          "description": "Absolute path to your Obsidian vault root. If empty, ricket will auto-resolve (env var → config file → workspace folder)."
+          "description": "Absolute path to your vault folder. If empty, ricket will auto-resolve (env var → config file → workspace folder)."
         }
       }
     }

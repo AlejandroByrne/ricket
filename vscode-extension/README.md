@@ -9,16 +9,17 @@ No Obsidian required — any folder of markdown files works.
 On activation, the extension:
 
 1. Detects your platform and locates the bundled `ricket` binary.
-2. Registers it as an MCP server in your VS Code settings (`mcp.servers.ricket`).
-3. Your agent can immediately call ricket tools to search, read, and organize your notes.
+2. Prompts you to select your vault folder using a native file picker (on first install).
+3. Registers it as an MCP server in your VS Code settings (`mcp.servers.ricket`).
+4. Your agent can immediately call ricket tools to search, read, and organize your notes.
 
-No manual MCP config editing required. Install the extension and start chatting.
+No manual MCP config editing or path formatting needed. Install, pick a folder, reload, and start chatting.
 
 ## Getting started
 
 1. **Install** this extension from the marketplace.
-2. **Open** a folder containing your notes (or an empty folder to start fresh).
-3. **Set your vault root** — either set `ricket.vaultRoot` in VS Code settings, or let ricket auto-resolve from the environment.
+2. **Select your vault folder** — a popup appears asking you to pick the folder. Click "Select Folder" and use the file picker. You can also re-pick later: `Ctrl+Shift+P` → "Ricket: Select Vault Folder".
+3. **Reload the window** — `Ctrl+Shift+P` → "Developer: Reload Window" so Copilot picks up the MCP server.
 4. **Send the first prompt** to your agent:
 
    Starting fresh:
@@ -31,13 +32,19 @@ No manual MCP config editing required. Install the extension and start chatting.
    Run vault_analyze and walk me through migrating my existing vault to ricket.
    ```
 
-Your agent will inspect the folder, generate a `ricket.yaml` config, scaffold folders and templates, and write a `VAULT_GUIDE.md`. Reload the window and the full tool set is live.
+Your agent will inspect the folder, generate a `ricket.yaml` config, scaffold folders and templates, and write a `VAULT_GUIDE.md`. Reload the window once more and the full tool set is live.
 
 ## Settings
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `ricket.vaultRoot` | `string` | `""` | Absolute path to your notes folder. Leave empty to auto-resolve (env var → config file → cwd). |
+| `ricket.vaultRoot` | `string` | `""` | Absolute path to your vault folder. Leave empty to auto-resolve (env var → config file → cwd). |
+
+## Commands
+
+| Command | Description |
+|---|---|
+| `Ricket: Select Vault Folder` | Open a folder picker to set or change your vault root. |
 
 ## Shared standards for teams
 

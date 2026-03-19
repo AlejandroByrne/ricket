@@ -62,7 +62,9 @@ Ricket makes **zero LLM API calls**. It is pure plumbing — the tool your agent
 
 ### 1. Install
 
-**VS Code** — install the [Ricket extension](https://marketplace.visualstudio.com/items?itemName=AlejandroByrne.ricket) from the marketplace. It bundles the binary and auto-registers the MCP server. Done.
+**VS Code (recommended)** — install the [Ricket extension](https://marketplace.visualstudio.com/items?itemName=AlejandroByrne.ricket) from the marketplace. It bundles the binary and auto-registers the MCP server. On first install, a popup asks you to select your vault folder using a native file picker — no manual path formatting needed. After selecting your folder, reload the window and you're ready to go.
+
+You can also re-select the vault folder later: `Ctrl+Shift+P` → "Ricket: Select Vault Folder".
 
 **From source:**
 
@@ -78,7 +80,9 @@ cd ricket
 make build    # → bin/ricket
 ```
 
-### 2. Configure your agent
+### 2. Configure your agent (non-extension installs)
+
+If you installed via the VS Code extension, skip this step — the extension handles MCP registration automatically.
 
 **VS Code (manual)** — add to `.vscode/mcp.json`:
 
