@@ -127,13 +127,11 @@ The agent inspects your folder, proposes a `ricket.yaml` config, scaffolds any m
 
 ## How it works
 
-```
- ┌─────────────────┐     MCP (stdio)     ┌───────────────────────┐
- │  Your AI Agent   │◄──────────────────►│       ricket           │
- │  (Copilot/Claude │                    │                       │
- │   /Cursor)       │                    │  vault notes (local)  │
- └─────────────────┘                    │  + shared sources     │
-                                         └───────────────────────┘
+```mermaid
+flowchart LR
+    A["Your AI Agent\n(Copilot / Claude / Cursor)"] <-->|"MCP (stdio)"| B["ricket"]
+    B --> C["Your notes\n(local markdown)"]
+    B --> D["Shared sources\n(team standards)"]
 ```
 
 1. **Before config exists** — ricket starts in migration mode. Only `vault_analyze` and `vault_write_config` are available. Your agent uses these to understand your notes and generate `ricket.yaml`.
