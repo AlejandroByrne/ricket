@@ -2,8 +2,8 @@
   "name": "ricket",
   "displayName": "Ricket",
   "description": "Vault-powered context engine for AI coding agents — bridges Obsidian vaults with AI assistants via MCP.",
-  "version": "0.4.1",
-  "publisher": "AlejandroByrne-fcbt",
+  "version": "0.5.0",
+  "publisher": "AlejandroByrne",
   "icon": "icon.png",
   "license": "MIT",
   "repository": {

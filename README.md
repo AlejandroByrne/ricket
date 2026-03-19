@@ -62,7 +62,7 @@ Ricket makes **zero LLM API calls**. It is pure plumbing — the tool your agent
 
 ### 1. Install
 
-**VS Code** — install the [Ricket extension](https://marketplace.visualstudio.com/items?itemName=AlejandroByrne-fcbt.ricket) from the marketplace. It bundles the binary and auto-registers the MCP server. Done.
+**VS Code** — install the [Ricket extension](https://marketplace.visualstudio.com/items?itemName=AlejandroByrne.ricket) from the marketplace. It bundles the binary and auto-registers the MCP server. Done.
 
 **From source:**
 
@@ -229,7 +229,7 @@ sources:                              # shared context for teams
 
 mcp:
   name: ricket
-  version: 0.4.1
+  version: 0.5.0
   needsApproval: true   # require approval before filing
 ```
 
