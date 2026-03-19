@@ -4,66 +4,83 @@
 
 # ricket
 
-Vault-powered context engine for AI coding agents.
+**Give your AI coding agent a memory.** Ricket is an MCP server that turns a folder of markdown notes into structured context your agent can search, read, and organize — so every session starts with your team's decisions, standards, and project history already loaded.
 
-Ricket bridges your [Obsidian](https://obsidian.md) vault and your AI coding assistant (Claude Code, GitHub Copilot, Cursor). Two jobs:
-
-1. **Triage** — take raw inbox notes, voice transcripts, meeting dumps and file them into the right place with the right template, tags, links, and MOC entry.
-2. **Context** — expose your vault's decisions, standards, concepts, and project history as structured context via MCP so your agent always knows your stack.
-3. **Analysis** — detect your PKM system (PARA, Zettelkasten, LYT/ACCESS, GTD, Johnny.Decimal, and more), map frontmatter schemas, link topology, and tag taxonomy so your agent understands *how* your vault is organized.
-
-Ricket makes **zero LLM API calls**. It is pure plumbing — the tool the LLM calls, not the other way around.
+Works with **GitHub Copilot**, **Claude Code**, and **Cursor**. No Obsidian required — any folder of markdown files works.
 
 ---
 
-## How it works
+## Why ricket?
 
-Setup and ongoing use are both entirely agent-driven. There is no interactive CLI wizard.
+AI coding agents are powerful but forgetful. Every new chat starts from zero. Ricket fixes that by giving your agent access to a persistent knowledge base:
 
+- **Decisions** — "We chose SQLite over Postgres for the local index because…"
+- **Standards** — "All API endpoints must follow our naming conventions…"
+- **Concepts** — "Here's how our dependency injection works…"
+- **Project context** — "The acme rewrite is tracked here…"
+
+Your agent reads these notes through MCP tools, so it writes code that actually follows your architecture — not generic best-practice guesses.
+
+### No Obsidian required
+
+Ricket works with **any folder of markdown files**. If you already use Obsidian, great — ricket detects your vault structure and works alongside it. If you don't, ricket will scaffold a clean folder structure and templates for you. All you need is a directory and some `.md` files.
+
+### Shared standards for teams
+
+The killer feature for teams: **reference sources**. Point ricket at a shared folder (a git repo, a network drive, a synced directory) and every teammate's agent gets the same context:
+
+```yaml
+# ricket.yaml
+sources:
+  - name: standards
+    path: ../shared-standards         # a shared git repo your team maintains
+  - name: playbook
+    path: /shared/engineering-playbook
 ```
-1. ricket init --vscode /path/to/vault   ← one CLI command, wires up MCP
-2. Open agent chat, send the first prompt ← agent takes it from here
-3. Dump notes into Inbox/, ask agent to triage ← the daily workflow
-```
 
-**New vault** — agent calls `vault_analyze`, inspects the empty directory, generates a `ricket.yaml` tailored to your intended structure, scaffolds folders and templates, and writes a `VAULT_GUIDE.md` that teaches future sessions how your vault is organized.
+Now when anyone on the team asks their agent to write an API endpoint, it finds your team's naming conventions. When someone asks about error handling, it finds your observability standards. The agents are all reading from the same playbook — literally.
 
-**Existing Obsidian vault** — agent calls `vault_analyze`, reads your folder tree, tags, naming patterns, and templates, then proposes a `ricket.yaml` that maps your actual structure into ricket categories. No data is moved; only config is written.
-
-After `ricket.yaml` exists, the server restarts into full mode and all triage tools become available.
+Source notes are **read-only** and automatically included in search results. No one accidentally edits the shared standards through their agent.
 
 ---
 
-## Requirements
+## What it does
 
-- Go 1.22+ (for building from source)
-- An AI assistant with MCP support: Claude Code, GitHub Copilot (VS Code), or GitHub Copilot (Visual Studio)
+Ricket exposes 13 MCP tools that handle three jobs:
+
+| Job | What happens |
+|-----|-------------|
+| **Context** | Your agent searches and reads your notes — decisions, standards, concepts, meeting history — so it codes with full awareness of your stack. |
+| **Triage** | Drop raw notes, voice transcripts, or meeting dumps into an inbox. Your agent proposes where to file them, applies templates, tags, and links, and updates Maps of Content. |
+| **Analysis** | Ricket detects your PKM system (PARA, Zettelkasten, LYT, GTD, Johnny.Decimal, and more), maps frontmatter schemas, link topology, and tag taxonomy so your agent understands *how* your notes are organized. |
+
+Ricket makes **zero LLM API calls**. It is pure plumbing — the tool your agent calls, not the other way around.
 
 ---
 
-## Installation
+## Quick start
+
+### 1. Install
+
+**VS Code** — install the [Ricket extension](https://marketplace.visualstudio.com/items?itemName=AlejandroByrne-fcbt.ricket) from the marketplace. It bundles the binary and auto-registers the MCP server. Done.
+
+**From source:**
 
 ```bash
 go install github.com/AlejandroByrne/ricket/cmd/ricket@latest
 ```
 
-Or build from source:
+Or clone and build:
 
 ```bash
 git clone https://github.com/AlejandroByrne/ricket
 cd ricket
-make build          # → bin/ricket
+make build    # → bin/ricket
 ```
 
----
+### 2. Configure your agent
 
-## Setup
-
-### 1. Wire up your agent
-
-Ricket runs as an MCP server over stdio. Configure it in your editor's MCP settings:
-
-**VS Code** — install the [Ricket extension](https://marketplace.visualstudio.com/items?itemName=AlejandroByrne-fcbt.ricket) (auto-registers the MCP server), or add manually to `.vscode/mcp.json`:
+**VS Code (manual)** — add to `.vscode/mcp.json`:
 
 ```json
 {
@@ -71,7 +88,7 @@ Ricket runs as an MCP server over stdio. Configure it in your editor's MCP setti
     "ricket": {
       "type": "stdio",
       "command": "ricket",
-      "args": ["--vault-root", "/path/to/vault"]
+      "args": ["--vault-root", "/path/to/your/notes"]
     }
   }
 }
@@ -84,39 +101,74 @@ Ricket runs as an MCP server over stdio. Configure it in your editor's MCP setti
   "mcpServers": {
     "ricket": {
       "command": "ricket",
-      "args": ["--vault-root", "/path/to/vault"]
+      "args": ["--vault-root", "/path/to/your/notes"]
     }
   }
 }
 ```
 
-### 2. Open your agent and send the first prompt
+### 3. Send the first prompt
 
-**Existing Obsidian vault:**
-```
-Run vault_analyze and walk me through migrating my existing vault to ricket.
-```
+Open your agent chat and send:
 
-**New vault:**
+**Starting fresh:**
 ```
 Run vault_analyze and help me set up a new ricket vault from scratch.
 ```
 
-The agent inspects your vault, proposes a config, and calls `vault_write_config` to write `ricket.yaml` and `VAULT_GUIDE.md`. Once written, restart the MCP server (reload your IDE window) — the full tool set is now available.
+**Existing notes / Obsidian vault:**
+```
+Run vault_analyze and walk me through migrating my existing vault to ricket.
+```
 
-### 3. Verify
+The agent inspects your folder, proposes a `ricket.yaml` config, scaffolds any missing structure, and writes a `VAULT_GUIDE.md` that teaches future sessions how your notes are organized. Reload your editor window and the full tool set is live.
 
-Once `ricket.yaml` exists, restart the MCP server (reload your IDE window). The full tool set is now available. Ask your agent:
+---
+
+## How it works
 
 ```
-Call vault_status to show my vault summary.
+ ┌─────────────────┐     MCP (stdio)     ┌───────────────────────┐
+ │  Your AI Agent   │◄──────────────────►│       ricket           │
+ │  (Copilot/Claude │                    │                       │
+ │   /Cursor)       │                    │  vault notes (local)  │
+ └─────────────────┘                    │  + shared sources     │
+                                         └───────────────────────┘
 ```
+
+1. **Before config exists** — ricket starts in migration mode. Only `vault_analyze` and `vault_write_config` are available. Your agent uses these to understand your notes and generate `ricket.yaml`.
+
+2. **After config exists** — ricket starts in full mode with all 13 tools. Your agent can search, read, triage, file, and create notes.
+
+3. **Every session** — your agent calls ricket tools to read decisions and standards before writing code, and files new notes after meetings or design discussions.
+
+---
+
+## Reference sources (team shared context)
+
+This is where ricket shines for teams. Add a `sources:` section to `ricket.yaml`:
+
+```yaml
+sources:
+  - name: standards
+    path: ../shared-standards      # relative to vault root, or absolute
+  - name: team-playbook
+    path: /shared/team-playbook
+```
+
+A source is just a folder of markdown files that your team maintains together — typically a git repo that everyone clones. Once configured:
+
+- **`vault_search`** automatically includes matching source notes in results (tagged with their source name).
+- **`vault_read_note`** reads source notes using `@source-name/path` syntax: `@standards/api-naming.md`.
+- **`vault_list_sources`** shows all configured sources and whether they're available.
+
+This means every developer on the team gets the same architectural decisions, the same API conventions, the same code review checklist injected into their agent's context — without anyone having to copy-paste or remember to attach files.
 
 ---
 
 ## Vault root resolution
 
-`ricket` resolves the vault root in this order:
+Ricket resolves the vault root in this order:
 
 | Priority | Source |
 |----------|--------|
@@ -127,114 +179,30 @@ Call vault_status to show my vault summary.
 
 ---
 
-## MCP tools reference
+## MCP tools
 
-### Migration tools (always available, including before `ricket.yaml` exists)
-
-| Tool | Description |
-|------|-------------|
-| `vault_analyze` | Inspect vault structure — folder tree, tag frequency, naming patterns, templates, MOC files, inferred categories with confidence scores, PKM system detection, frontmatter schema, link topology, and tag taxonomy. Safe to call on any directory. |
-| `vault_write_config` | Write `ricket.yaml` and `VAULT_GUIDE.md` to vault root. Accepts raw YAML config and guide markdown. Pass `scaffold: true` to also create missing folders and template stubs. |
-
-### Triage and filing tools (available after `ricket.yaml` exists)
+### Setup tools (always available)
 
 | Tool | Description |
 |------|-------------|
-| `vault_list_inbox` | List all notes in Inbox — path, name, 200-char preview |
-| `vault_triage_inbox` | Analyze Inbox notes and propose filing actions (category, destination, confidence, signals); does not mutate files |
-| `vault_read_note` | Read a note by path — frontmatter, content, tags, wikilinks. Supports `@source-name/path` for reading from reference sources. |
-| `vault_search` | Search by folder, tags (AND), and/or full-text query. When a text query is provided, also searches configured reference sources. |
-| `vault_get_categories` | Return all configured categories with signals |
-| `vault_get_templates` | Return all templates with their section headings |
-| `vault_file_note` | Move a note from Inbox to destination, apply template/tags/links/MOC |
-| `vault_create_note` | Create a new note with optional tags, links, and MOC update |
-| `vault_update_note` | Update an existing note's content, tags, and/or links in-place |
-| `vault_status` | Inbox count, total notes, category count |
-| `vault_list_sources` | List configured reference sources with availability status |
+| `vault_analyze` | Deep inspection of vault structure — folder tree, tags, naming patterns, templates, MOCs, inferred categories, PKM system detection, frontmatter schema, link topology, tag taxonomy. Safe to call on any directory. |
+| `vault_write_config` | Write `ricket.yaml` and `VAULT_GUIDE.md`. Pass `scaffold: true` to create missing folders and template stubs. |
 
-### `vault_write_config` parameters
+### Context & triage tools (available after config)
 
-```json
-{
-  "config_yaml": "vault:\n  inbox: Inbox/\n...",
-  "guide_content": "# VAULT_GUIDE\n...",
-  "guide_path": "VAULT_GUIDE.md",
-  "overwrite": false,
-  "scaffold": true
-}
-```
-
-`scaffold: true` calls `ricket config scaffold` internally — creates missing folders, template stubs, and MOC files based on the config just written.
-
-### `vault_search` parameters
-
-```json
-{
-  "folder": "Areas/Engineering/decisions/",
-  "tags": ["decision", "acme"],
-  "query": "SQL Server"
-}
-```
-
-All filters are **AND**-combined. Uses SQLite for tag/content queries; filesystem walk otherwise.
-
-### Reference sources (multi-vault)
-
-Ricket can expose read-only notes from external directories (shared standards, team guidelines, etc.) alongside your vault content.
-
-Add a `sources:` section to `ricket.yaml`:
-
-```yaml
-sources:
-  - name: standards
-    path: ../shared-standards     # relative to vault root, or absolute
-  - name: team-playbook
-    path: /shared/team-playbook
-```
-
-Once configured:
-
-- **`vault_search`** automatically includes source results (with a `source` field) when a text query is provided.
-- **`vault_read_note`** reads source notes using the `@source-name/path` convention: `@standards/api-naming.md`.
-- **`vault_list_sources`** returns all configured sources with their resolved paths and availability status.
-
-Source notes are **read-only** — they cannot be modified, filed, or triaged. Path traversal outside a source root is rejected.
-
-### `vault_triage_inbox` workflow
-
-`vault_triage_inbox` is the triage planning tool. It returns:
-- `proposals`: deterministic suggestions for filing Inbox notes
-- `unresolved`: notes with low confidence or no category signal match
-
-Each proposal includes `needsApproval: true`, so your agent should ask for user approval before executing the suggested moves with `vault_file_note`.
-
-### `vault_file_note` parameters
-
-```json
-{
-  "source": "Inbox/meeting-notes.md",
-  "destination": "Areas/Engineering/meetings/2026-03-17-sprint-planning.md",
-  "template": "meeting",
-  "tags": ["meeting", "acme"],
-  "links": ["sprint-backlog", "auth-regression"],
-  "moc": "Areas/Engineering/meetings/MOC.md"
-}
-```
-
-Returns `{ destination, gitCommitMessage, gitCommitted }`. If the vault is a git repository, ricket auto-commits the change.
-
-### `vault_update_note` parameters
-
-```json
-{
-  "path": "Areas/Engineering/decisions/use-sqlite-for-index.md",
-  "content": "# Revised decision\n\nUpdated rationale...",
-  "tags": ["reviewed", "stable"],
-  "links": ["observability-strategy"]
-}
-```
-
-At least one of `content`, `tags`, or `links` must be provided. Tags are additive (merged with existing tags, deduplicated). Returns `{ path, gitCommitted }`.
+| Tool | Description |
+|------|-------------|
+| `vault_search` | Search by folder, tags, and/or full-text query. Automatically searches reference sources too. |
+| `vault_read_note` | Read a note's content, frontmatter, tags, and wikilinks. Use `@source/path` for shared sources. |
+| `vault_list_inbox` | List unprocessed notes in the inbox with previews. |
+| `vault_triage_inbox` | Propose filing actions for inbox notes — category, destination, confidence, matched signals. |
+| `vault_file_note` | Move a note from inbox to its destination with template, tags, links, and MOC update. |
+| `vault_create_note` | Create a new note with optional template, tags, links, and MOC entry. |
+| `vault_update_note` | Update an existing note's content, tags, or links in-place. |
+| `vault_get_categories` | List all configured categories with their signal keywords. |
+| `vault_get_templates` | List all templates with their section structure. |
+| `vault_status` | Inbox count, total notes, category count. |
+| `vault_list_sources` | List reference sources and their availability. |
 
 ---
 
@@ -242,48 +210,47 @@ At least one of `content`, `tags`, or `links` must be provided. Tags are additiv
 
 ```yaml
 vault:
-  inbox: Inbox/          # where unprocessed notes land
-  archive: Archive/      # where old notes go
-  templates: _templates/ # Obsidian Templater templates
+  inbox: Inbox/             # where raw notes land
+  archive: Archive/         # where old notes go
+  templates: _templates/    # note templates
 
 categories:
-  - name: acme-decision
+  - name: engineering-decision
     folder: Areas/Engineering/decisions/
-    template: decision          # template to apply when filing
-    naming: use-{topic}.md      # suggested filename pattern
-    tags: [decision, acme]      # tags to add on filing
-    moc: Areas/Engineering/decisions/MOC.md  # MOC to update
-    signals:                    # keywords that hint this category
-      - decision
-      - standard
-      - convention
+    template: decision
+    naming: use-{topic}.md
+    tags: [decision, engineering]
+    moc: Areas/Engineering/decisions/MOC.md
+    signals: [decision, standard, convention]
+
+sources:                              # shared context for teams
+  - name: standards                   # referenced as @standards/path
+    path: ../shared-standards
+  - name: playbook
+    path: /shared/engineering-playbook
 
 mcp:
-  name: ricket      # name shown in MCP client
-  version: 0.4.0
-  needsApproval: true # set false to skip triage approval prompts
-
-sources:                          # read-only reference vaults
-  - name: standards               # identifier used in @standards/path
-    path: /path/to/shared-standards  # absolute or relative to vault root
+  name: ricket
+  version: 0.4.1
+  needsApproval: true   # require approval before filing
 ```
 
-### Signal hints
+### Signals
 
-`signals` are keywords that help the AI agent decide which category a note belongs to. When the agent calls `vault_get_categories`, it sees these signals and can match them against the note's content before calling `vault_file_note`.
+`signals` are keywords that help your agent match inbox notes to categories. When the agent calls `vault_get_categories`, it sees these signals and uses them to propose filing destinations.
 
 ---
 
 ## Git audit trail
 
-If your vault is a git repository (recommended — use the **Obsidian Git** plugin), ricket automatically commits every `vault_file_note` and `vault_create_note` operation:
+If your vault is a git repo, ricket auto-commits every `vault_file_note` and `vault_create_note`:
 
 ```
 ricket: filed meeting-notes.md → Areas/Engineering/meetings/2026-03-17-sprint-planning.md
 ricket: created Areas/Engineering/concepts/opentelemetry.md
 ```
 
-Filter ricket vault operations:
+Filter ricket operations:
 
 ```bash
 git log --oneline --grep="ricket:"
@@ -291,15 +258,15 @@ git log --oneline --grep="ricket:"
 
 ---
 
-## Recommended Obsidian plugin setup
+## Using with Obsidian
+
+Ricket works great with Obsidian but doesn't require it. If you do use Obsidian, these plugins pair well:
 
 | Plugin | Why |
 |--------|-----|
-| **Obsidian Git** | Auto-syncs vault to remote; ricket commits appear here |
-| **Templater** | Templates use `<% tp.file.title %>` and `<% tp.date.now(...) %>` — ricket resolves these |
+| **Obsidian Git** | Auto-syncs vault to remote; ricket commits appear in the git log |
+| **Templater** | Ricket resolves `<% tp.file.title %>` and `<% tp.date.now(...) %>` placeholders |
 | **Dataview** | MOC files can use Dataview queries to auto-list notes by tag |
-| **Tag Wrangler** | Rename tags across vault when standards change |
-| **Omnisearch** | Fast full-text search in the Obsidian UI (complements ricket's SQLite index) |
 
 ---
 
@@ -312,37 +279,15 @@ make lint     # go vet ./...
 make clean    # remove bin/ and .ricket/
 ```
 
-### Test vault
-
-`testdata/vault/` contains a realistic PARA vault used for integration tests. It has:
-- 3 inbox captures (raw, meeting draft, learning note)
-- 5 templates (decision, concept, meeting, project, learning)
-- Filed notes across decisions, concepts, projects, personal development
-- `ricket.yaml` configured for a single work org ("acme") + personal learning
-
----
-
-## Architecture
+### Architecture
 
 ```
-cmd/ricket/          CLI (serve-only MCP server)
+cmd/ricket/          MCP server entry point
 internal/
-  config/            ricket.yaml load/write, multi-source resolution
-  vault/             core vault operations
-    analyze.go       VaultAnalysis — single-pass walk, folder tree, tags, patterns, inferred categories
-    pkm.go           PKM system detection (PARA, LYT, ACE, Zettelkasten, JD, GTD, BASB, Evergreen)
-    notedata.go      Shared noteData struct for single-pass parsing
-    scaffold.go      ScaffoldVault — create missing folders, templates, MOC files
-    frontmatter.go   YAML frontmatter parse/serialize
-    template.go      Templater placeholder substitution
-    moc.go           Map-of-Content append
-    index.go         SQLite search index (modernc.org/sqlite)
-    vault.go         Vault struct — all operations, SearchSources, ReadSourceNote
+  config/            Config loading, multi-source resolution
+  vault/             Core vault operations, search, analysis, PKM detection
+  mcp/               MCP server, tool definitions, handlers
   git/               Git audit trail
-  mcp/               MCP server (mark3labs/mcp-go)
-    server.go        Server init; migration mode; WithInstructions (VAULT_GUIDE.md)
-    tools.go         MCP tool definitions, handlers, source integration
-vscode-extension/    VS Code extension — auto-registers ricket as MCP server
-testdata/vault/      Realistic test vault fixture
-testdata/shared-standards/  Reference source fixture for tests
+vscode-extension/    VS Code extension (auto-registers ricket)
+testdata/            Test fixtures (vault + shared-standards)
 ```
