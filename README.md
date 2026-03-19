@@ -233,7 +233,7 @@ sources:                              # shared context for teams
 
 mcp:
   name: ricket
-  version: 0.5.0
+  version: 0.5.1
   needsApproval: true   # require approval before filing
 ```
 

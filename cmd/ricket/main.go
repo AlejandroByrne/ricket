@@ -16,7 +16,7 @@ func main() {
 	root := &cobra.Command{
 		Use:     "ricket",
 		Short:   "Vault-powered MCP server for AI coding agents",
-		Version: "0.5.0",
+		Version: "0.5.1",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root, err := resolveRoot()
 			if err != nil {
