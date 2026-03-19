@@ -8,19 +8,21 @@ const MCP_SERVER_NAME = "ricket";
 export function activate(context: vscode.ExtensionContext): void {
   const binaryPath = getBundledBinaryPath(context);
   if (!binaryPath) {
-    vscode.window.showWarningMessage(
-      "Ricket: bundled binary not found for this platform. Install ricket manually and configure the MCP server."
+    // No bundled binary — fall back to "ricket" on PATH.
+    vscode.window.showInformationMessage(
+      "Ricket: no bundled binary for this platform. Falling back to 'ricket' on PATH."
     );
-    return;
+    ensureMcpServerRegistered("ricket");
+  } else {
+    ensureMcpServerRegistered(binaryPath);
   }
-
-  ensureMcpServerRegistered(binaryPath);
 
   // Re-register when the user changes ricket.vaultRoot.
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("ricket.vaultRoot")) {
-        ensureMcpServerRegistered(binaryPath);
+        const bp = getBundledBinaryPath(context) ?? "ricket";
+        ensureMcpServerRegistered(bp);
       }
     })
   );
