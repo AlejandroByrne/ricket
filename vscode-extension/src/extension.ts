@@ -14,21 +14,25 @@ export function activate(context: vscode.ExtensionContext): void {
     );
   }
 
-  // If no vault root is configured, prompt the user with a folder picker.
   const currentRoot = vscode.workspace
     .getConfiguration("ricket")
     .get<string>("vaultRoot", "");
 
   if (!currentRoot) {
-    promptForVaultRoot(command);
+    // No vault root configured — prompt with folder picker.
+    pickVaultFolder(command);
   } else {
-    ensureMcpServerRegistered(command);
+    // Vault root exists — register and prompt reload if settings changed.
+    const changed = ensureMcpServerRegistered(command);
+    if (changed) {
+      promptReload();
+    }
   }
 
   // Register a command so the user can re-pick the vault root later.
   context.subscriptions.push(
     vscode.commands.registerCommand("ricket.selectVaultRoot", () =>
-      promptForVaultRoot(command)
+      pickVaultFolder(command)
     )
   );
 
@@ -36,7 +40,10 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("ricket.vaultRoot")) {
-        ensureMcpServerRegistered(command);
+        const changed = ensureMcpServerRegistered(command);
+        if (changed) {
+          promptReload();
+        }
       }
     })
   );
@@ -75,10 +82,9 @@ function getBundledBinaryPath(
 
 /**
  * Writes (or updates) the ricket MCP server entry in VS Code user settings
- * under `mcp.servers`. This lets GitHub Copilot (and other MCP-aware
- * extensions) discover the running ricket server automatically.
+ * under `mcp.servers`. Returns true if settings were changed.
  */
-function ensureMcpServerRegistered(binaryPath: string): void {
+function ensureMcpServerRegistered(binaryPath: string): boolean {
   const config = vscode.workspace.getConfiguration("mcp");
   const servers: Record<string, unknown> =
     (config.get<Record<string, unknown>>("servers") as Record<string, unknown>) ?? {};
@@ -98,11 +104,12 @@ function ensureMcpServerRegistered(binaryPath: string): void {
     existing["command"] === desired.command &&
     JSON.stringify(existing["args"]) === JSON.stringify(desired.args)
   ) {
-    return;
+    return false;
   }
 
   servers[MCP_SERVER_NAME] = desired;
   config.update("servers", servers, vscode.ConfigurationTarget.Global);
+  return true;
 }
 
 /**
@@ -124,40 +131,45 @@ function buildArgs(): string[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Shows a notification asking the user to select their vault folder, then
- * opens a native folder picker. Saves the result to `ricket.vaultRoot` and
- * re-registers the MCP server.
+ * Opens a native folder picker, saves the selection to `ricket.vaultRoot`,
+ * registers the MCP server, and prompts to reload.
  */
-async function promptForVaultRoot(binaryPath: string): Promise<void> {
+async function pickVaultFolder(binaryPath: string): Promise<void> {
   const choice = await vscode.window.showInformationMessage(
     "Ricket: Select your vault folder to get started.",
     "Select Folder",
     "Skip"
   );
 
-  if (choice !== "Select Folder") {
-    // Still register the server (will use cwd / env fallback).
-    ensureMcpServerRegistered(binaryPath);
-    return;
+  if (choice === "Select Folder") {
+    const uris = await vscode.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      openLabel: "Select Vault Folder",
+    });
+
+    if (uris && uris.length > 0) {
+      const selected = uris[0].fsPath;
+      await vscode.workspace
+        .getConfiguration("ricket")
+        .update("vaultRoot", selected, vscode.ConfigurationTarget.Global);
+    }
   }
 
-  const uris = await vscode.window.showOpenDialog({
-    canSelectFiles: false,
-    canSelectFolders: true,
-    canSelectMany: false,
-    openLabel: "Select Vault Folder",
-  });
+  ensureMcpServerRegistered(binaryPath);
+  promptReload();
+}
 
-  if (uris && uris.length > 0) {
-    const selected = uris[0].fsPath;
-    await vscode.workspace
-      .getConfiguration("ricket")
-      .update("vaultRoot", selected, vscode.ConfigurationTarget.Global);
-    ensureMcpServerRegistered(binaryPath);
-    vscode.window.showInformationMessage(
-      `Ricket: vault root set to ${selected}. Reload the window to start the MCP server.`
-    );
-  } else {
-    ensureMcpServerRegistered(binaryPath);
+/**
+ * Asks the user to reload the window so VS Code picks up the MCP server.
+ */
+async function promptReload(): Promise<void> {
+  const action = await vscode.window.showInformationMessage(
+    "Ricket: MCP server registered. Reload the window to start it.",
+    "Reload Now"
+  );
+  if (action === "Reload Now") {
+    await vscode.commands.executeCommand("workbench.action.reloadWindow");
   }
 }
